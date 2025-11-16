@@ -10,8 +10,8 @@ const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
 const allowedOrigins =
   process.env.NODE_ENV === 'production'
-    ? ['https://dofus-tracker-web.vercel.app/']
-    : ['http://localhost:5173', 'http://localhost:3000', 'https://dofus-tracker-web.vercel.app/'];
+    ? ['https://dofus-tracker-web.vercel.app']
+    : ['http://localhost:5173', 'http://localhost:3000'];
 
 function setCors(req: VercelRequest, res: VercelResponse) {
   const origin = req.headers.origin as string | undefined;
