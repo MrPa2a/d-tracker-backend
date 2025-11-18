@@ -14,31 +14,26 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 AS $$
-  WITH item_changes AS (
+  WITH daily AS (
     SELECT 
       mo.item_name,
-      COUNT(DISTINCT DATE(mo.captured_at)) AS obs_count,
-      (
-        SELECT AVG(mo2.price_unit_avg) 
-        FROM market_observations mo2 
-        WHERE mo2.item_name = mo.item_name 
-          AND mo2.server = p_server
-          AND DATE(mo2.captured_at) = p_to
-      ) AS last_price,
-      (
-        SELECT AVG(mo2.price_unit_avg) 
-        FROM market_observations mo2 
-        WHERE mo2.item_name = mo.item_name 
-          AND mo2.server = p_server
-          AND DATE(mo2.captured_at) = p_from
-      ) AS first_price
+      DATE(mo.captured_at) AS day,
+      AVG(mo.price_unit_avg) AS avg_price
     FROM market_observations mo
     WHERE 
       mo.server = p_server
       AND DATE(mo.captured_at) BETWEEN p_from AND p_to
-    GROUP BY mo.item_name
-    HAVING 
-      COUNT(DISTINCT DATE(mo.captured_at)) >= 2
+    GROUP BY mo.item_name, DATE(mo.captured_at)
+  ),
+  first_last AS (
+    SELECT 
+      d.item_name,
+      (array_agg(d.avg_price ORDER BY d.day ASC))[1] AS first_price,
+      (array_agg(d.avg_price ORDER BY d.day DESC))[1] AS last_price,
+      COUNT(DISTINCT d.day) AS obs_count
+    FROM daily d
+    GROUP BY d.item_name
+    HAVING COUNT(DISTINCT d.day) >= 2
   ),
   weighted_changes AS (
     SELECT 
@@ -50,12 +45,12 @@ AS $$
         ELSE 0
       END AS weighted_pct_change,
       obs_count AS weight
-    FROM item_changes
+    FROM first_last
     WHERE first_price > 0 AND last_price IS NOT NULL
   )
   SELECT 
     p_server AS server,
-    ROUND(SUM(weighted_pct_change) / NULLIF(SUM(weight), 0), 2) AS index_change,
-    COUNT(*) AS total_items
+    ROUND(COALESCE(SUM(weighted_pct_change) / NULLIF(SUM(weight), 0), 0), 2) AS index_change,
+    COUNT(*)::BIGINT AS total_items
   FROM weighted_changes;
 $$;

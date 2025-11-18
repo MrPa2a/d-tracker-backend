@@ -86,8 +86,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: error.message });
     }
 
-    // Return first row or null
-    const stats = data && data.length > 0 ? data[0] : null;
+    // Return first row or null, with validation
+    const rawStats = data && data.length > 0 ? data[0] : null;
+    
+    if (!rawStats) {
+      return res.status(200).json(null);
+    }
+
+    // Validate and normalize stats
+    const stats = {
+      item_name: rawStats.item_name || '',
+      server: rawStats.server || '',
+      volatility: typeof rawStats.volatility === 'number' ? rawStats.volatility : 0,
+      median_price: typeof rawStats.median_price === 'number' ? rawStats.median_price : 0,
+      signal: ['buy', 'sell', 'neutral'].includes(rawStats.signal) ? rawStats.signal : 'neutral',
+      ma7: typeof rawStats.ma7 === 'number' ? rawStats.ma7 : 0,
+      current_price: typeof rawStats.current_price === 'number' ? rawStats.current_price : 0,
+    };
+
     return res.status(200).json(stats);
   } catch (err) {
     console.error('Error in item-stats:', err);

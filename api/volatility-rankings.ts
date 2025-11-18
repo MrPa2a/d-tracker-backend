@@ -97,7 +97,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: error.message });
     }
 
-    return res.status(200).json(data || []);
+    // Validate and normalize each ranking
+    const rankings = (data || []).map((item: any) => ({
+      item_name: item.item_name || '',
+      server: item.server || '',
+      volatility: typeof item.volatility === 'number' ? item.volatility : 0,
+      last_price: typeof item.last_price === 'number' ? item.last_price : 0,
+      pct_change: typeof item.pct_change === 'number' ? item.pct_change : 0,
+      obs_count: typeof item.obs_count === 'number' ? Number(item.obs_count) : 0,
+    }));
+
+    return res.status(200).json(rankings);
   } catch (err) {
     console.error('Error in volatility-rankings:', err);
     return res.status(500).json({ error: 'Internal server error' });

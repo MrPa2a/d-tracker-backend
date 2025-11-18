@@ -85,8 +85,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: error.message });
     }
 
-    // Return first row or null
-    const index = data && data.length > 0 ? data[0] : null;
+    // Return first row or null, with validation
+    const rawIndex = data && data.length > 0 ? data[0] : null;
+    
+    if (!rawIndex) {
+      return res.status(200).json(null);
+    }
+
+    // Validate and normalize index
+    const index = {
+      server: rawIndex.server || '',
+      index_change: typeof rawIndex.index_change === 'number' ? rawIndex.index_change : 0,
+      total_items: typeof rawIndex.total_items === 'number' ? Number(rawIndex.total_items) : 0,
+    };
+
     return res.status(200).json(index);
   } catch (err) {
     console.error('Error in market-index:', err);
