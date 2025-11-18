@@ -6,11 +6,28 @@ const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+const allowedOrigins =
+  process.env.NODE_ENV === 'production'
+    ? ['https://dofus-tracker-web.vercel.app']
+    : ['http://localhost:5173', 'http://localhost:3000'];
+
+function setCors(req: VercelRequest, res: VercelResponse) {
+  const origin = req.headers.origin as string | undefined;
+
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type,Authorization'
+  );
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  setCors(req, res);
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
