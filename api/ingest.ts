@@ -2,6 +2,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { setCors } from '../utils/cors';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -37,6 +38,12 @@ const bodySchema = z.union([
 ]);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  setCors(req, res);
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   // 0) Vérifier que le backend est bien configuré
   if (!supabase || !ingestApiToken) {
     return res.status(500).json({

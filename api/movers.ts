@@ -1,6 +1,7 @@
 // api/movers.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { setCors } from '../utils/cors';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -8,25 +9,7 @@ const ingestApiToken = process.env.INGEST_API_TOKEN;
 
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-const allowedOrigins =
-  process.env.NODE_ENV === 'production'
-    ? ['https://dofus-tracker-web.vercel.app']
-    : ['http://localhost:5173', 'http://localhost:3000'];
 
-function setCors(req: VercelRequest, res: VercelResponse) {
-  const origin = req.headers.origin as string | undefined;
-
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type,Authorization'
-  );
-}
 
 function decodeQueryValue(value: string | string[] | undefined): string | null {
   if (!value) return null;

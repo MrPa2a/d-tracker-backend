@@ -1,32 +1,13 @@
 // api/items.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { setCors } from '../utils/cors';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const ingestApiToken = process.env.INGEST_API_TOKEN;
 
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
-
-const allowedOrigins =
-  process.env.NODE_ENV === 'production'
-    ? ['https://dofus-tracker-web.vercel.app']
-    : ['http://localhost:5173', 'http://localhost:3000'];
-
-function setCors(req: VercelRequest, res: VercelResponse) {
-  const origin = req.headers.origin as string | undefined;
-
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type,Authorization'
-  );
-}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(req, res);
@@ -45,21 +26,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // 2) Auth simple via header Authorization: Bearer <token>
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({
-      error: 'unauthorized',
-      message: 'Missing or invalid Authorization header',
-    });
-  }
+  // const authHeader = req.headers['authorization'];
+  // if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  //   return res.status(401).json({
+  //     error: 'unauthorized',
+  //     message: 'Missing or invalid Authorization header',
+  //   });
+  // }
 
-  const token = authHeader.slice('Bearer '.length).trim();
-  if (token !== ingestApiToken) {
-    return res.status(403).json({
-      error: 'forbidden',
-      message: 'Invalid API token',
-    });
-  }
+  // const token = authHeader.slice('Bearer '.length).trim();
+  // if (token !== ingestApiToken) {
+  //   return res.status(403).json({
+  //     error: 'forbidden',
+  //     message: 'Invalid API token',
+  //   });
+  // }
 
   try {
     const { data, error } = await supabase.rpc('items_with_latest_stats');

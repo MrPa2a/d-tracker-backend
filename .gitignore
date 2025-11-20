@@ -35,3 +35,4 @@ logs/
 # Misc
 .cache/
 .tmp/
+.vercel
