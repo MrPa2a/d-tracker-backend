@@ -9,7 +9,16 @@ const ingestApiToken = process.env.INGEST_API_TOKEN;
 
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-
+// Petit helper pour décoder les + et %xx vers des espaces/UTF-8 corrects
+function decodeQueryValue(value: string | string[] | undefined): string | null {
+  if (!value) return null;
+  const v = Array.isArray(value) ? value[0] : value;
+  try {
+    return decodeURIComponent(v.replace(/\+/g, ' '));
+  } catch {
+    return v.replace(/\+/g, ' ');
+  }
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(req, res);
@@ -43,7 +52,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  const { server, from, to } = req.query;
+  const server = decodeQueryValue(req.query.server);
+  const from = decodeQueryValue(req.query.from);
+  const to = decodeQueryValue(req.query.to);
 
   if (!server || !from || !to) {
     return res.status(400).json({ error: 'Missing required parameters: server, from, to' });
