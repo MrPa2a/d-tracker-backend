@@ -127,47 +127,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
 
   try {
-    // DEBUG : vérifier qu'on voit bien quelque chose dans la table brute
-    const debugRaw = await supabase
+    // On récupère directement les observations brutes pour avoir tous les points (intraday)
+    const { data, error } = await supabase
       .from('market_observations')
       .select('captured_at, price_unit_avg')
       .eq('item_name', item)
       .eq('server', server)
       .gte('captured_at', fromIso)
       .lte('captured_at', toIso)
-      .order('captured_at', { ascending: true })
-      .limit(5);
-
-    console.log('[timeseries] raw observations check:', {
-      error: debugRaw.error,
-      count: debugRaw.data?.length ?? 0,
-      firstRows: debugRaw.data,
-    });
-
-    const { data, error } = await supabase.rpc('timeseries_daily', {
-      p_item_name: item,
-      p_server: server,
-      p_from: fromIso,
-      p_to: toIso,
-    });
+      .order('captured_at', { ascending: true });
 
     if (error) {
       console.error('Supabase error in /api/timeseries:', error);
       return res.status(500).json({
         error: 'supabase_error',
-        message: 'Failed to fetch timeseries_daily',
+        message: 'Failed to fetch timeseries',
         details: error.message,
       });
     }
 
-    console.log('[timeseries] rpc result:', {
+    console.log('[timeseries] result:', {
       count: data?.length ?? 0,
       firstRow: data?.[0],
     });
 
     const payload = (data || []).map((row: any) => ({
-      date: row.day,
-      avg_price: row.avg_price,
+      date: row.captured_at,
+      avg_price: row.price_unit_avg,
     }));
 
     return res.status(200).json(payload);
