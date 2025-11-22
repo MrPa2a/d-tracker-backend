@@ -57,6 +57,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const fromStr = decodeQueryValue(req.query.from);
   const toStr = decodeQueryValue(req.query.to);
   const limitStr = decodeQueryValue(req.query.limit) ?? '10';
+  const minPriceStr = decodeQueryValue(req.query.min_price);
+  const maxPriceStr = decodeQueryValue(req.query.max_price);
 
   if (!server) {
     return res.status(400).json({
@@ -84,8 +86,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const fromIso = fromDateUtc.toISOString();
   const toIso = toDateUtc.toISOString();
   const limit = Math.max(1, Math.min(200, parseInt(limitStr, 10) || 10));
+  const minPrice = minPriceStr ? parseFloat(minPriceStr) : null;
+  const maxPrice = maxPriceStr ? parseFloat(maxPriceStr) : null;
 
-  console.log('[movers] incoming params:', { server, fromIso, toIso, limit });
+  console.log('[movers] incoming params:', { server, fromIso, toIso, limit, minPrice, maxPrice });
 
   try {
     // We expect a Postgres RPC function named "movers" to exist in the DB.
@@ -96,6 +100,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       p_from: fromIso,
       p_to: toIso,
       p_limit: limit,
+      p_min_price: minPrice,
+      p_max_price: maxPrice,
     });
 
     if (error) {

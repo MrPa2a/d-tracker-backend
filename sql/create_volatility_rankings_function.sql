@@ -6,7 +6,9 @@ CREATE OR REPLACE FUNCTION volatility_rankings(
   p_from DATE,
   p_to DATE,
   p_limit INT DEFAULT 10,
-  p_order TEXT DEFAULT 'desc'
+  p_order TEXT DEFAULT 'desc',
+  p_min_price NUMERIC DEFAULT NULL,
+  p_max_price NUMERIC DEFAULT NULL
 )
 RETURNS TABLE (
   item_name TEXT,
@@ -61,6 +63,8 @@ AS $$
     iv.obs_count
   FROM item_volatility iv
   WHERE iv.volatility_calc IS NOT NULL
+    AND (p_min_price IS NULL OR iv.latest_price >= p_min_price)
+    AND (p_max_price IS NULL OR iv.latest_price <= p_max_price)
   ORDER BY 
     CASE WHEN p_order = 'desc' THEN iv.volatility_calc END DESC,
     CASE WHEN p_order = 'asc'  THEN iv.volatility_calc END ASC

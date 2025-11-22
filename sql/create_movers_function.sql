@@ -5,7 +5,9 @@ create or replace function public.movers(
   p_server text,
   p_from timestamptz,
   p_to timestamptz,
-  p_limit integer default 10
+  p_limit integer default 10,
+  p_min_price numeric default null,
+  p_max_price numeric default null
 )
 returns table (
   item_name text,
@@ -39,15 +41,20 @@ as $$
     group by d.item_name, d.server
     having count(distinct d.day) >= 2
   )
-  select
-    fl.item_name,
-    fl.server,
-    fl.last_avg::numeric as last_price,
-    case 
-      when fl.first_avg = 0 then 0 
-      else ((fl.last_avg - fl.first_avg) / fl.first_avg) * 100 
-    end as pct_change
-  from first_last fl
+  select *
+  from (
+    select
+      fl.item_name,
+      fl.server,
+      fl.last_avg::numeric as last_price,
+      case 
+        when fl.first_avg = 0 then 0 
+        else ((fl.last_avg - fl.first_avg) / fl.first_avg) * 100 
+      end as pct_change
+    from first_last fl
+    where (p_min_price is null or fl.last_avg >= p_min_price)
+      and (p_max_price is null or fl.last_avg <= p_max_price)
+  ) t
   order by abs(pct_change) desc
   limit p_limit;
 $$;

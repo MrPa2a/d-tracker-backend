@@ -54,6 +54,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const from = decodeQueryValue(req.query.from);
   const to = decodeQueryValue(req.query.to);
   const limit = decodeQueryValue(req.query.limit) ?? '20';
+  const minPriceStr = decodeQueryValue(req.query.min_price);
+  const maxPriceStr = decodeQueryValue(req.query.max_price);
 
   if (!server || !from || !to) {
     return res.status(400).json({ error: 'Missing required parameters: server, from, to' });
@@ -71,12 +73,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
       return res.status(400).json({ error: 'Invalid limit. Must be between 1 and 100' });
     }
+    const minPrice = minPriceStr ? parseFloat(minPriceStr) : null;
+    const maxPrice = maxPriceStr ? parseFloat(maxPriceStr) : null;
 
     const { data, error } = await supabase.rpc('investment_opportunities', {
       p_server: server,
       p_from: fromDate.toISOString().split('T')[0],
       p_to: toDate.toISOString().split('T')[0],
       p_limit: limitNum,
+      p_min_price: minPrice,
+      p_max_price: maxPrice,
     });
 
     if (error) {

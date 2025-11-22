@@ -5,7 +5,9 @@ CREATE OR REPLACE FUNCTION investment_opportunities(
   p_server TEXT,
   p_from DATE,
   p_to DATE,
-  p_limit INT DEFAULT 20
+  p_limit INT DEFAULT 20,
+  p_min_price NUMERIC DEFAULT NULL,
+  p_max_price NUMERIC DEFAULT NULL
 )
 RETURNS TABLE (
   item_name TEXT,
@@ -68,6 +70,8 @@ AS $$
     AND ist.ma7_calc IS NOT NULL
     AND ist.volatility_calc IS NOT NULL
     AND ist.latest_price < (ist.ma7_calc * (1 - ist.volatility_calc/100)) -- Signal d'achat
+    AND (p_min_price IS NULL OR ist.latest_price >= p_min_price)
+    AND (p_max_price IS NULL OR ist.latest_price <= p_max_price)
   ORDER BY discount_pct DESC
   LIMIT p_limit;
 $$;
