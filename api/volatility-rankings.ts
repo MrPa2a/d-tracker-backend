@@ -84,7 +84,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const minPrice = minPriceStr ? parseFloat(minPriceStr) : null;
     const maxPrice = maxPriceStr ? parseFloat(maxPriceStr) : null;
 
-    const { data, error } = await supabase.rpc('volatility_rankings', {
+    // Parse filterItems from query (comma separated list of item names)
+    const filterItemsRaw = decodeQueryValue(req.query.filterItems);
+    const filterItems = filterItemsRaw ? filterItemsRaw.split(',') : null;
+
+    const { data, error } = await supabase.rpc('get_volatility_rankings_v2', {
       p_server: server,
       p_from: fromDate.toISOString().split('T')[0],
       p_to: toDate.toISOString().split('T')[0],
@@ -92,6 +96,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       p_order: order,
       p_min_price: minPrice,
       p_max_price: maxPrice,
+      p_filter_items: filterItems
     });
 
     if (error) {

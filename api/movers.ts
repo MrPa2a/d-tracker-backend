@@ -88,20 +88,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const limit = Math.max(1, Math.min(200, parseInt(limitStr, 10) || 10));
   const minPrice = minPriceStr ? parseFloat(minPriceStr) : null;
   const maxPrice = maxPriceStr ? parseFloat(maxPriceStr) : null;
+  
+  // Parse filterItems from query (comma separated list of item names)
+  const filterItemsRaw = decodeQueryValue(req.query.filterItems);
+  const filterItems = filterItemsRaw ? filterItemsRaw.split(',') : null;
 
-  console.log('[movers] incoming params:', { server, fromIso, toIso, limit, minPrice, maxPrice });
+  console.log('[movers] incoming params:', { server, fromIso, toIso, limit, minPrice, maxPrice, filterItems });
 
   try {
     // We expect a Postgres RPC function named "movers" to exist in the DB.
     // It should accept p_server, p_from, p_to, p_limit and return rows with
     // item_name, server, last_price, pct_change (percent over period).
-    const { data, error } = await supabase.rpc('movers', {
+    // V2: Added p_filter_items
+    const { data, error } = await supabase.rpc('get_movers_v2', {
       p_server: server,
       p_from: fromIso,
       p_to: toIso,
       p_limit: limit,
       p_min_price: minPrice,
       p_max_price: maxPrice,
+      p_filter_items: filterItems
     });
 
     if (error) {
@@ -110,13 +116,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (String(error.message || '').toLowerCase().includes('function') || String(error.code || '').toLowerCase().includes('42883')) {
         return res.status(501).json({
           error: 'missing_rpc',
-          message: 'Database function "movers" is missing. Check your RPC functions in the database.'
+          message: 'Database function "get_movers_v2" is missing. Check your RPC functions in the database.'
         });
       }
 
       return res.status(500).json({
         error: 'supabase_error',
-        message: 'Failed to call movers rpc',
+        message: 'Failed to call get_movers_v2 rpc',
         details: error.message,
       });
     }

@@ -56,6 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const limit = decodeQueryValue(req.query.limit) ?? '20';
   const minPriceStr = decodeQueryValue(req.query.min_price);
   const maxPriceStr = decodeQueryValue(req.query.max_price);
+  const filterItemsStr = decodeQueryValue(req.query.filterItems);
 
   if (!server || !from || !to) {
     return res.status(400).json({ error: 'Missing required parameters: server, from, to' });
@@ -75,14 +76,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const minPrice = minPriceStr ? parseFloat(minPriceStr) : null;
     const maxPrice = maxPriceStr ? parseFloat(maxPriceStr) : null;
+    const filterItems = filterItemsStr ? filterItemsStr.split(',').map(s => s.trim()).filter(Boolean) : null;
 
-    const { data, error } = await supabase.rpc('sell_opportunities', {
+    const { data, error } = await supabase.rpc('sell_opportunities_v2', {
       p_server: server,
       p_from: fromDate.toISOString().split('T')[0],
       p_to: toDate.toISOString().split('T')[0],
       p_limit: limitNum,
       p_min_price: minPrice,
       p_max_price: maxPrice,
+      p_filter_items: filterItems,
     });
 
     if (error) {

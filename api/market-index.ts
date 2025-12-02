@@ -55,6 +55,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const server = decodeQueryValue(req.query.server);
   const from = decodeQueryValue(req.query.from);
   const to = decodeQueryValue(req.query.to);
+  const filterItemsStr = decodeQueryValue(req.query.filterItems);
 
   if (!server || !from || !to) {
     return res.status(400).json({ error: 'Missing required parameters: server, from, to' });
@@ -68,10 +69,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Invalid date format' });
     }
 
-    const { data, error } = await supabase.rpc('market_index', {
+    const filterItems = filterItemsStr ? filterItemsStr.split(',').map(s => s.trim()).filter(Boolean) : null;
+
+    const { data, error } = await supabase.rpc('market_index_v2', {
       p_server: server,
       p_from: fromDate.toISOString().split('T')[0],
       p_to: toDate.toISOString().split('T')[0],
+      p_filter_items: filterItems,
     });
 
     if (error) {
