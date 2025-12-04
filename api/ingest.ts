@@ -116,7 +116,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }));
 
   // 6) Insertion dans Supabase
-  const { error } = await supabase.from('market_observations').insert(rows);
+  const { data, error } = await supabase
+    .from('market_observations')
+    .insert(rows)
+    .select('id'); // On demande de retourner les IDs
 
   if (error) {
     console.error('Supabase insert error:', error);
@@ -130,5 +133,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   return res.status(201).json({
     status: 'ok',
     inserted: rows.length,
+    ids: data, // On renvoie les IDs insérés
   });
 }
