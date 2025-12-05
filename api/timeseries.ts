@@ -130,7 +130,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // On récupère directement les observations brutes pour avoir tous les points (intraday)
     const { data, error } = await supabase
       .from('market_observations')
-      .select('captured_at, price_unit_avg')
+      .select('id, captured_at, price_unit_avg')
       .eq('item_name', item)
       .eq('server', server)
       .gte('captured_at', fromIso)
@@ -152,6 +152,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const payload = (data || []).map((row: any) => ({
+      id: row.id,
       date: row.captured_at,
       avg_price: row.price_unit_avg,
     }));
