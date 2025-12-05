@@ -1,0 +1,73 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { z } from 'zod';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { setCors } from '../utils/cors';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ingestApiToken = process.env.INGEST_API_TOKEN;
+
+let supabase: SupabaseClient | null = null;
+
+if (supabaseUrl && supabaseServiceRoleKey) {
+  supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+}
+
+const deleteSchema = z.object({
+  id: z.number().int().positive(),
+});
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  setCors(req, res);
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (!supabase || !ingestApiToken) {
+    return res.status(500).json({ error: 'backend_not_configured' });
+  }
+
+  if (req.method !== 'DELETE') {
+    res.setHeader('Allow', 'DELETE');
+    return res.status(405).json({ error: 'method_not_allowed' });
+  }
+
+  // Auth
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  const token = authHeader.slice('Bearer '.length).trim();
+  if (token !== ingestApiToken) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  // Parse Body
+  let parsedBody: unknown;
+  try {
+    parsedBody = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  } catch (err) {
+    return res.status(400).json({ error: 'invalid_json' });
+  }
+
+  const result = deleteSchema.safeParse(parsedBody);
+  if (!result.success) {
+    return res.status(400).json({ error: 'validation_error', details: result.error.flatten() });
+  }
+
+  const { id } = result.data;
+
+  // Delete from Supabase
+  const { error } = await supabase
+    .from('market_observations')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('Supabase delete error:', error);
+    return res.status(500).json({ error: 'db_delete_failed' });
+  }
+
+  return res.status(200).json({ status: 'ok', deleted_id: id });
+}
