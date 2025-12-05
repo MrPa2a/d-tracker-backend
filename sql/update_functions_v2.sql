@@ -1,3 +1,7 @@
+-- Index optimization (Run this once)
+CREATE INDEX IF NOT EXISTS idx_market_observations_server_captured_at 
+ON market_observations (server, captured_at);
+
 -- Function to get movers with optional item filter
 CREATE OR REPLACE FUNCTION get_movers_v2(
     p_server TEXT,
@@ -25,7 +29,8 @@ AS $$
       avg(mo.price_unit_avg) as avg_price
     from market_observations mo
     where mo.server = p_server
-      and DATE(mo.captured_at) BETWEEN p_from AND p_to
+      and mo.captured_at >= p_from::timestamptz
+      and mo.captured_at < (p_to + interval '1 day')::timestamptz
       AND (p_filter_items IS NULL OR mo.item_name = ANY(p_filter_items))
     group by mo.item_name, mo.server, day
   ),
@@ -91,7 +96,8 @@ AS $$
     FROM public.market_observations mo
     WHERE 
       mo.server = p_server
-      AND DATE(mo.captured_at) BETWEEN p_from AND p_to
+      AND mo.captured_at >= p_from::timestamptz
+      AND mo.captured_at < (p_to + interval '1 day')::timestamptz
       AND (p_filter_items IS NULL OR mo.item_name = ANY(p_filter_items))
     GROUP BY mo.item_name, DATE(mo.captured_at)
   ),
@@ -163,7 +169,8 @@ AS $$
     FROM public.market_observations mo
     WHERE 
       mo.server = p_server
-      AND DATE(mo.captured_at) BETWEEN p_from AND p_to
+      AND mo.captured_at >= p_from::timestamptz
+      AND mo.captured_at < (p_to + interval '1 day')::timestamptz
       AND (p_filter_items IS NULL OR mo.item_name = ANY(p_filter_items))
     GROUP BY mo.item_name, DATE(mo.captured_at)
   ),
@@ -241,7 +248,8 @@ AS $$
     FROM public.market_observations mo
     WHERE 
       mo.server = p_server
-      AND DATE(mo.captured_at) BETWEEN p_from AND p_to
+      AND mo.captured_at >= p_from::timestamptz
+      AND mo.captured_at < (p_to + interval '1 day')::timestamptz
       AND (p_filter_items IS NULL OR mo.item_name = ANY(p_filter_items))
     GROUP BY mo.item_name, DATE(mo.captured_at)
   ),
@@ -312,7 +320,8 @@ AS $$
     FROM market_observations mo
     WHERE 
       mo.server = p_server
-      AND DATE(mo.captured_at) BETWEEN p_from AND p_to
+      AND mo.captured_at >= p_from::timestamptz
+      AND mo.captured_at < (p_to + interval '1 day')::timestamptz
       AND (p_filter_items IS NULL OR mo.item_name = ANY(p_filter_items))
     GROUP BY mo.item_name, DATE(mo.captured_at)
   ),
