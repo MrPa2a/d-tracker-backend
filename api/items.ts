@@ -158,16 +158,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { 
         limit = '200', 
         offset = '0', 
-        search = '', 
         sortBy = 'name', 
         sortOrder = 'asc',
-        server
       } = req.query;
+
+      const search = decodeQueryValue(req.query.search);
+      const server = decodeQueryValue(req.query.server);
+
+      console.log('Search params:', { search, server, limit, offset });
 
       let query = supabase.rpc('items_with_latest_stats');
 
       if (server) {
-        query = query.eq('server', server as string);
+        query = query.eq('server', server);
       }
 
       if (search) {
