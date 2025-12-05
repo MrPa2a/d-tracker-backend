@@ -50,6 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const maxPriceStr = decodeQueryValue(req.query.max_price);
   const filterItemsStr = decodeQueryValue(req.query.filterItems);
   const order = decodeQueryValue(req.query.order) ?? 'desc';
+  const item = decodeQueryValue(req.query.item);
 
   if (!type || !server || !from || !to) {
     return res.status(400).json({ error: 'Missing required parameters: type, server, from, to' });
@@ -109,6 +110,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         rpcParams.p_max_price = maxPrice;
         rpcParams.p_filter_items = filterItems;
         break;
+      case 'stats':
+        if (!item) {
+          return res.status(400).json({ error: 'Missing required parameter: item' });
+        }
+        rpcName = 'item_stats';
+        rpcParams.p_item_name = item;
+        break;
       default:
         return res.status(400).json({ error: 'invalid_type', message: `Unknown market type: ${type}` });
     }
@@ -129,6 +137,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         index_change: typeof rawIndex.index_change === 'number' ? rawIndex.index_change : 0,
         total_items: typeof rawIndex.total_items === 'number' ? Number(rawIndex.total_items) : 0,
       });
+    }
+
+    // Special handling for stats (returns single object)
+    if (type === 'stats') {
+      const rawStats = data && data.length > 0 ? data[0] : null;
+      return res.status(200).json(rawStats);
     }
 
     return res.status(200).json(data);
