@@ -484,7 +484,8 @@ RETURNS TABLE (
   item_name text,
   server text,
   last_observation_at timestamptz,
-  last_price numeric
+  last_price numeric,
+  category text
 )
 LANGUAGE sql
 STABLE
@@ -500,10 +501,12 @@ AS $$
         AND o2.server = o.server
       ORDER BY o2.captured_at DESC
       LIMIT 1
-    ) AS last_price
+    ) AS last_price,
+    c.name AS category
   FROM observations o
   JOIN items i ON o.item_id = i.id
-  GROUP BY i.id, i.name, o.server
+  LEFT JOIN categories c ON i.category_id = c.id
+  GROUP BY i.id, i.name, o.server, c.name
   ORDER BY i.name, o.server;
 $$;
 
