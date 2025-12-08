@@ -110,14 +110,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const insertedIds: number[] = [];
 
   try {
-    // Pour chaque observation, on doit récupérer l'ID de l'item
-    // Idéalement, on pourrait optimiser ça avec un batch RPC, mais pour l'instant on boucle
+    // Pour chaque observation, on appelle la fonction RPC d'ingestion intelligente
     const newObservationsPromises = observations.map(async (obs) => {
-      // Appel RPC pour obtenir l'ID (et gérer la catégorie si on l'avait)
-      const { data: itemId, error: rpcError } = await supabase!.rpc('get_or_create_item_id', {
-        p_name: obs.item_name,
+      const { data: obsId, error: rpcError } = await supabase!.rpc('ingest_observation', {
+        p_item_name: obs.item_name,
         p_ankama_id: obs.ankama_id || null,
-        p_category: null // Pas encore de catégorie dans le payload actuel
+        p_server: obs.server,
+        p_price_unit_avg: obs.price_unit_avg,
+        p_nb_lots: obs.nb_lots,
+        p_captured_at: obs.captured_at,
+        p_source_client: obs.source_client
       });
 
       if (rpcError) {
@@ -125,37 +127,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return null;
       }
 
-      return {
-        item_id: itemId,
-        server: obs.server,
-        price_unit_avg: obs.price_unit_avg,
-        nb_lots: obs.nb_lots,
-        captured_at: obs.captured_at,
-        source_client: obs.source_client,
-      };
+      return obsId; // Peut être null si doublon ignoré
     });
 
     const newObservationsResults = await Promise.all(newObservationsPromises);
-    const validNewObservations = newObservationsResults.filter((o): o is NonNullable<typeof o> => o !== null);
+    
+    // On filtre les nulls (erreurs ou doublons ignorés)
+    const validIds = newObservationsResults.filter((id): id is number => id !== null);
+    insertedIds.push(...validIds);
 
-    if (validNewObservations.length > 0) {
-      const { data, error: insertError } = await supabase
-        .from('observations')
-        .insert(validNewObservations)
-        .select('id');
-
-      if (insertError) {
-        console.error('Ingest Insert Error:', insertError);
-        return res.status(500).json({
-          error: 'db_insert_failed',
-          message: 'Failed to insert observations',
-        });
-      }
-      
-      if (data) {
-        insertedIds.push(...data.map(d => d.id));
-      }
-    }
   } catch (exception) {
     console.error('Ingest Exception:', exception);
     return res.status(500).json({

@@ -37,3 +37,53 @@ BEGIN
   RETURN v_item_id;
 END;
 $$;
+
+-- Fonction d'ingestion intelligente avec déduplication (15 min)
+CREATE OR REPLACE FUNCTION ingest_observation(
+  p_item_name TEXT,
+  p_ankama_id INTEGER,
+  p_server TEXT,
+  p_price_unit_avg NUMERIC,
+  p_nb_lots INTEGER,
+  p_captured_at TIMESTAMPTZ,
+  p_source_client TEXT
+)
+RETURNS BIGINT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_item_id INTEGER;
+  v_last_price NUMERIC;
+  v_last_date TIMESTAMPTZ;
+  v_obs_id BIGINT;
+BEGIN
+  -- 1. Récupérer ou créer l'item (via la fonction existante)
+  v_item_id := get_or_create_item_id(p_item_name, p_ankama_id, NULL);
+
+  -- 2. Vérifier la dernière observation pour cet item/serveur
+  SELECT price_unit_avg, captured_at 
+  INTO v_last_price, v_last_date
+  FROM observations
+  WHERE item_id = v_item_id AND server = p_server
+  ORDER BY captured_at DESC
+  LIMIT 1;
+
+  -- 3. Logique de déduplication
+  -- Si le prix est identique ET que l'écart de temps est < 15 minutes
+  IF v_last_price IS NOT NULL 
+     AND v_last_price = p_price_unit_avg 
+     AND p_captured_at >= v_last_date
+     AND (p_captured_at - v_last_date) < interval '15 minutes' THEN
+     
+     -- On retourne NULL pour signifier qu'on a rien fait (doublon ignoré)
+     RETURN NULL;
+  END IF;
+
+  -- 4. Insertion
+  INSERT INTO observations (item_id, server, price_unit_avg, nb_lots, captured_at, source_client)
+  VALUES (v_item_id, p_server, p_price_unit_avg, p_nb_lots, p_captured_at, p_source_client)
+  RETURNING id INTO v_obs_id;
+
+  RETURN v_obs_id;
+END;
+$$;
