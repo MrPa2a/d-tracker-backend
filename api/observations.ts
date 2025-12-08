@@ -77,36 +77,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { item_name, server, captured_at, price_unit_avg } = result.data;
 
-    // 1. Insert into OLD table (market_observations)
-    const { data, error } = await supabase
-      .from('market_observations')
-      .insert({
-        item_name,
-        server,
-        captured_at,
-        price_unit_avg,
-        nb_lots: 1,
-        source_client: 'manual_web_edit',
-        raw_item_name: item_name
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Supabase insert error:', error);
-      return res.status(500).json({ error: 'db_insert_failed', details: error.message });
-    }
-
-    // 2. Insert into NEW table (observations) - Dual Write
+    // MIGRATION V3: Insert into NEW table (observations) ONLY
     let v3Data = null;
     try {
-      const { data: itemId, error: rpcError } = await supabase.rpc('get_or_create_item_id', {
+      const { data: itemId, error: rpcError } = await supabase!.rpc('get_or_create_item_id', {
         p_name: item_name,
         p_category: null
       });
 
       if (!rpcError && itemId) {
-        const { data: obsData, error: obsError } = await supabase.from('observations').insert({
+        const { data: obsData, error: obsError } = await supabase!.from('observations').insert({
           item_id: itemId,
           server,
           price_unit_avg,
@@ -118,21 +98,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!obsError) {
           v3Data = obsData;
         } else {
-          console.error('Dual Write Insert Error:', obsError);
+          console.error('Insert Error:', obsError);
+          return res.status(500).json({ error: 'db_insert_failed', details: obsError.message });
         }
       } else {
-        console.error('Dual Write RPC Error:', rpcError);
+        console.error('RPC Error:', rpcError);
+        return res.status(500).json({ error: 'db_rpc_failed', details: rpcError?.message ?? 'Item ID not returned' });
       }
-    } catch (e) {
-      console.error('Dual Write Exception:', e);
+    } catch (e: any) {
+      console.error('Exception:', e);
+      return res.status(500).json({ error: 'internal_error', details: e.message });
     }
 
-    // Return V3 data if available (so frontend gets the correct ID for subsequent updates/deletes)
-    if (v3Data) {
-      return res.status(200).json({ status: 'ok', data: v3Data });
-    }
-
-    return res.status(200).json({ status: 'ok', data });
+    return res.status(200).json({ status: 'ok', data: v3Data });
   }
 
   // --- PUT: Update Observation ---

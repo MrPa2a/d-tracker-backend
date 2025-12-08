@@ -103,36 +103,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ? result.data
     : [result.data];
 
-  // 5) Mapping vers les colonnes SQL
-  const rows = observations.map((obs) => ({
-    item_name: obs.item_name,
-    server: obs.server,
-    captured_at: obs.captured_at,
-    price_unit_avg: obs.price_unit_avg,
-    nb_lots: obs.nb_lots,
-    source_client: obs.source_client,
-    client_version: obs.client_version ?? null,
-    raw_item_name: obs.raw_item_name ?? null,
-  }));
+  // 5) Mapping vers les colonnes SQL (V3)
+  // MIGRATION V3: On écrit UNIQUEMENT dans la nouvelle structure relationnelle
+  
+  const insertedIds: number[] = [];
 
-  // 6) Insertion dans Supabase
-  const { data, error } = await supabase
-    .from('market_observations')
-    .insert(rows)
-    .select('id'); // On demande de retourner les IDs
-
-  if (error) {
-    console.error('Supabase insert error:', error);
-    return res.status(500).json({
-      error: 'db_insert_failed',
-      message: 'Failed to insert observations',
-    });
-  }
-
-  // --- DUAL WRITE (MIGRATION V3) ---
-  // On écrit aussi dans la nouvelle structure relationnelle
-  // On ne bloque pas l'erreur ici pour ne pas casser l'existant si la migration échoue
   try {
+    // Pour chaque observation, on doit récupérer l'ID de l'item
+    // Idéalement, on pourrait optimiser ça avec un batch RPC, mais pour l'instant on boucle
     const newObservationsPromises = observations.map(async (obs) => {
       // Appel RPC pour obtenir l'ID (et gérer la catégorie si on l'avait)
       const { data: itemId, error: rpcError } = await supabase!.rpc('get_or_create_item_id', {
@@ -141,7 +119,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
 
       if (rpcError) {
-        console.error('Dual Write RPC Error for item ' + obs.item_name, rpcError);
+        console.error('Ingest RPC Error for item ' + obs.item_name, rpcError);
         return null;
       }
 
@@ -159,23 +137,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const validNewObservations = newObservationsResults.filter((o): o is NonNullable<typeof o> => o !== null);
 
     if (validNewObservations.length > 0) {
-      const { error: dwError } = await supabase
+      const { data, error: insertError } = await supabase
         .from('observations')
-        .insert(validNewObservations);
+        .insert(validNewObservations)
+        .select('id');
 
-      if (dwError) {
-        console.error('Dual Write Insert Error:', dwError);
+      if (insertError) {
+        console.error('Ingest Insert Error:', insertError);
+        return res.status(500).json({
+          error: 'db_insert_failed',
+          message: 'Failed to insert observations',
+        });
+      }
+      
+      if (data) {
+        insertedIds.push(...data.map(d => d.id));
       }
     }
-  } catch (dwException) {
-    console.error('Dual Write Exception:', dwException);
+  } catch (exception) {
+    console.error('Ingest Exception:', exception);
+    return res.status(500).json({
+      error: 'internal_server_error',
+      message: 'Unexpected error during ingestion',
+    });
   }
-  // ---------------------------------
 
   // 7) Réponse OK
   return res.status(201).json({
     status: 'ok',
-    inserted: rows.length,
-    ids: data, // On renvoie les IDs insérés
+    inserted: insertedIds.length,
+    ids: insertedIds,
   });
 }
