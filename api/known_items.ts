@@ -92,6 +92,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         itemData.category_id = categoryId;
       }
 
+      // Check if the GID is already taken by ANOTHER item (conflict resolution)
+      const { data: existingItemWithGid } = await supabase
+        .from('items')
+        .select('id, name')
+        .eq('ankama_id', body.gid)
+        .single();
+
+      if (existingItemWithGid && existingItemWithGid.name !== body.name) {
+         // The GID is taken by someone else. We must release it to avoid unique constraint error.
+         console.log(`GID ${body.gid} is taken by '${existingItemWithGid.name}'. Releasing it.`);
+         await supabase
+           .from('items')
+           .update({ ankama_id: null })
+           .eq('id', existingItemWithGid.id);
+      }
+
       const { error } = await supabase
         .from('items')
         .upsert(itemData, { onConflict: 'name' });
