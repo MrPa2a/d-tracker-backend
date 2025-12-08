@@ -129,6 +129,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  // --- DUAL WRITE (MIGRATION V3) ---
+  // On écrit aussi dans la nouvelle structure relationnelle
+  // On ne bloque pas l'erreur ici pour ne pas casser l'existant si la migration échoue
+  try {
+    const newObservationsPromises = observations.map(async (obs) => {
+      // Appel RPC pour obtenir l'ID (et gérer la catégorie si on l'avait)
+      const { data: itemId, error: rpcError } = await supabase!.rpc('get_or_create_item_id', {
+        p_name: obs.item_name,
+        p_category: null // Pas encore de catégorie dans le payload actuel
+      });
+
+      if (rpcError) {
+        console.error('Dual Write RPC Error for item ' + obs.item_name, rpcError);
+        return null;
+      }
+
+      return {
+        item_id: itemId,
+        server: obs.server,
+        price_unit_avg: obs.price_unit_avg,
+        nb_lots: obs.nb_lots,
+        captured_at: obs.captured_at,
+        source_client: obs.source_client,
+      };
+    });
+
+    const newObservationsResults = await Promise.all(newObservationsPromises);
+    const validNewObservations = newObservationsResults.filter((o): o is NonNullable<typeof o> => o !== null);
+
+    if (validNewObservations.length > 0) {
+      const { error: dwError } = await supabase
+        .from('observations')
+        .insert(validNewObservations);
+
+      if (dwError) {
+        console.error('Dual Write Insert Error:', dwError);
+      }
+    }
+  } catch (dwException) {
+    console.error('Dual Write Exception:', dwException);
+  }
+  // ---------------------------------
+
   // 7) Réponse OK
   return res.status(201).json({
     status: 'ok',
