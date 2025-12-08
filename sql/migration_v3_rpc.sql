@@ -177,6 +177,8 @@ AS $$
 $$;
 
 -- 4. Item Stats V3
+DROP FUNCTION IF EXISTS public.item_stats_v3(text, text, date, date);
+
 CREATE OR REPLACE FUNCTION item_stats_v3(
   p_item_name TEXT,
   p_server TEXT,
@@ -190,7 +192,8 @@ RETURNS TABLE (
   median_price NUMERIC,
   signal TEXT,
   ma7 NUMERIC,
-  current_price NUMERIC
+  current_price NUMERIC,
+  category TEXT
 )
 LANGUAGE sql
 STABLE
@@ -227,6 +230,13 @@ AS $$
       (SELECT avg_price FROM daily ORDER BY day DESC LIMIT 1)::numeric AS latest_price,
       AVG(avg_price) FILTER (WHERE day >= (SELECT MAX(day) FROM daily) - INTERVAL '6 days')::numeric AS ma7_calc
     FROM daily_changes
+  ),
+  item_info AS (
+    SELECT c.name as category_name
+    FROM items i
+    LEFT JOIN categories c ON i.category_id = c.id
+    WHERE i.name = p_item_name
+    LIMIT 1
   )
   SELECT 
     p_item_name AS item_name,
@@ -240,8 +250,9 @@ AS $$
       ELSE 'neutral'
     END AS signal,
     ROUND(COALESCE(stats.ma7_calc, 0::numeric), 0) AS ma7,
-    ROUND(COALESCE(stats.latest_price, 0::numeric), 0) AS current_price
-  FROM stats;
+    ROUND(COALESCE(stats.latest_price, 0::numeric), 0) AS current_price,
+    item_info.category_name AS category
+  FROM stats, item_info;
 $$;
 
 -- 5. Market Index V3
