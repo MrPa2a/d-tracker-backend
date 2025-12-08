@@ -35,7 +35,8 @@ CREATE OR REPLACE FUNCTION get_movers_v3(
     p_limit INT,
     p_min_price NUMERIC DEFAULT NULL,
     p_max_price NUMERIC DEFAULT NULL,
-    p_filter_items TEXT[] DEFAULT NULL
+    p_filter_items TEXT[] DEFAULT NULL,
+    p_order TEXT DEFAULT 'abs'
 )
 RETURNS TABLE (
     item_name TEXT,
@@ -83,12 +84,16 @@ AS $$
   where 
     (p_min_price IS NULL OR fl.last_avg >= p_min_price)
     AND (p_max_price IS NULL OR fl.last_avg <= p_max_price)
-  order by abs(
-      case 
-        when fl.first_avg = 0 then 0
-        else ((fl.last_avg - fl.first_avg) / fl.first_avg * 100)
-      end
-  ) desc
+  order by 
+      CASE WHEN p_order = 'asc' THEN 
+        (case when fl.first_avg = 0 then 0 else ((fl.last_avg - fl.first_avg) / fl.first_avg * 100) end) 
+      END ASC,
+      CASE WHEN p_order = 'desc' THEN 
+        (case when fl.first_avg = 0 then 0 else ((fl.last_avg - fl.first_avg) / fl.first_avg * 100) end) 
+      END DESC,
+      CASE WHEN p_order = 'abs' THEN 
+        ABS(case when fl.first_avg = 0 then 0 else ((fl.last_avg - fl.first_avg) / fl.first_avg * 100) end) 
+      END DESC
   limit p_limit;
 $$;
 

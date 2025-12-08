@@ -87,6 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         rpcParams.p_min_price = minPrice;
         rpcParams.p_max_price = maxPrice;
         rpcParams.p_filter_items = filterItems;
+        rpcParams.p_order = order; // 'asc', 'desc', or 'abs'
         break;
       case 'volatility':
         rpcName = 'get_volatility_rankings_v3';
