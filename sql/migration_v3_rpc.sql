@@ -48,31 +48,30 @@ STABLE
 AS $$
   with daily as (
     select
-      i.name as item_name,
+      o.item_id,
       o.server,
-      date_trunc('day', o.captured_at) as day,
+      date_trunc('day', o.captured_at)::date as day,
       avg(o.price_unit_avg) as avg_price
     from observations o
-    join items i on o.item_id = i.id
     where o.server = p_server
       and o.captured_at >= p_from::timestamptz
       and o.captured_at < (p_to + interval '1 day')::timestamptz
-      AND (p_filter_items IS NULL OR i.name = ANY(p_filter_items))
-    group by i.name, o.server, day
+      AND (p_filter_items IS NULL OR o.item_id IN (SELECT id FROM items WHERE name = ANY(p_filter_items)))
+    group by o.item_id, o.server, day
   ),
   first_last as (
     select
-      d.item_name,
+      d.item_id,
       d.server,
       (array_agg(d.avg_price order by d.day asc))[1] as first_avg,
       (array_agg(d.avg_price order by d.day desc))[1] as last_avg,
       count(distinct d.day) as num_days
     from daily d
-    group by d.item_name, d.server
+    group by d.item_id, d.server
     having count(distinct d.day) >= 2
   )
   select 
-      fl.item_name,
+      i.name as item_name,
       fl.server,
       fl.last_avg::numeric as last_price,
       case 
@@ -80,6 +79,7 @@ AS $$
         else round(((fl.last_avg - fl.first_avg) / fl.first_avg * 100)::numeric, 2)
       end as pct_change
   from first_last fl
+  join items i on fl.item_id = i.id
   where 
     (p_min_price IS NULL OR fl.last_avg >= p_min_price)
     AND (p_max_price IS NULL OR fl.last_avg <= p_max_price)
@@ -116,43 +116,42 @@ STABLE
 AS $$
   WITH daily AS (
     SELECT 
-      i.name as item_name,
-      DATE(o.captured_at) AS day,
+      o.item_id,
+      date_trunc('day', o.captured_at)::date AS day,
       AVG(o.price_unit_avg) AS avg_price
     FROM observations o
-    JOIN items i ON o.item_id = i.id
     WHERE 
       o.server = p_server
       AND o.captured_at >= p_from::timestamptz
       AND o.captured_at < (p_to + interval '1 day')::timestamptz
-      AND (p_filter_items IS NULL OR i.name = ANY(p_filter_items))
-    GROUP BY i.name, DATE(o.captured_at)
+      AND (p_filter_items IS NULL OR o.item_id IN (SELECT id FROM items WHERE name = ANY(p_filter_items)))
+    GROUP BY o.item_id, 2
   ),
   daily_changes AS (
     SELECT 
-      item_name,
+      item_id,
       day,
       avg_price,
       CASE 
-        WHEN LAG(avg_price) OVER (PARTITION BY item_name ORDER BY day) IS NOT NULL 
-        THEN (((avg_price - LAG(avg_price) OVER (PARTITION BY item_name ORDER BY day)) / LAG(avg_price) OVER (PARTITION BY item_name ORDER BY day)) * 100)::numeric
+        WHEN LAG(avg_price) OVER (PARTITION BY item_id ORDER BY day) IS NOT NULL 
+        THEN (((avg_price - LAG(avg_price) OVER (PARTITION BY item_id ORDER BY day)) / LAG(avg_price) OVER (PARTITION BY item_id ORDER BY day)) * 100)::numeric
         ELSE 0::numeric
       END AS pct_change
     FROM daily
   ),
   stats AS (
     SELECT 
-      item_name,
+      item_id,
       STDDEV(pct_change)::numeric AS volatility_calc,
       (array_agg(avg_price ORDER BY day DESC))[1] AS last_price,
       (array_agg(avg_price ORDER BY day ASC))[1] AS first_price,
       COUNT(*) AS obs_count
     FROM daily_changes
-    GROUP BY item_name
+    GROUP BY item_id
     HAVING COUNT(*) >= 2
   )
   SELECT 
-    s.item_name,
+    i.name as item_name,
     p_server AS server,
     ROUND(COALESCE(s.volatility_calc, 0), 2) AS volatility,
     ROUND(s.last_price, 0) AS last_price,
@@ -162,6 +161,7 @@ AS $$
     END AS pct_change,
     s.obs_count
   FROM stats s
+  JOIN items i ON s.item_id = i.id
   WHERE 
     (p_min_price IS NULL OR s.last_price >= p_min_price)
     AND (p_max_price IS NULL OR s.last_price <= p_max_price)
@@ -243,7 +243,8 @@ $$;
 CREATE OR REPLACE FUNCTION market_index_v3(
   p_server TEXT,
   p_from DATE,
-  p_to DATE
+  p_to DATE,
+  p_filter_items TEXT[] DEFAULT NULL
 )
 RETURNS TABLE (
   server TEXT,
@@ -255,29 +256,30 @@ STABLE
 AS $$
   WITH daily AS (
     SELECT 
-      i.name as item_name,
-      DATE(o.captured_at) AS day,
+      o.item_id,
+      date_trunc('day', o.captured_at)::date AS day,
       AVG(o.price_unit_avg) AS avg_price
     FROM observations o
-    JOIN items i ON o.item_id = i.id
     WHERE 
       o.server = p_server
-      AND DATE(o.captured_at) BETWEEN p_from AND p_to
-    GROUP BY i.name, DATE(o.captured_at)
+      AND o.captured_at >= p_from::timestamptz
+      AND o.captured_at < (p_to + interval '1 day')::timestamptz
+      AND (p_filter_items IS NULL OR o.item_id IN (SELECT id FROM items WHERE name = ANY(p_filter_items)))
+    GROUP BY o.item_id, 2
   ),
   first_last AS (
     SELECT 
-      d.item_name,
+      d.item_id,
       (array_agg(d.avg_price ORDER BY d.day ASC))[1] AS first_price,
       (array_agg(d.avg_price ORDER BY d.day DESC))[1] AS last_price,
       COUNT(DISTINCT d.day) AS obs_count
     FROM daily d
-    GROUP BY d.item_name
+    GROUP BY d.item_id
     HAVING COUNT(DISTINCT d.day) >= 2
   ),
   weighted_changes AS (
     SELECT 
-      item_name,
+      item_id,
       obs_count,
       CASE 
         WHEN first_price > 0 AND last_price IS NOT NULL
@@ -302,7 +304,8 @@ CREATE OR REPLACE FUNCTION investment_opportunities_v3(
   p_to DATE,
   p_limit INT DEFAULT 20,
   p_min_price NUMERIC DEFAULT NULL,
-  p_max_price NUMERIC DEFAULT NULL
+  p_max_price NUMERIC DEFAULT NULL,
+  p_filter_items TEXT[] DEFAULT NULL
 )
 RETURNS TABLE (
   item_name TEXT,
@@ -318,56 +321,66 @@ STABLE
 AS $$
   WITH daily AS (
     SELECT 
-      i.name as item_name,
-      DATE(o.captured_at) AS day,
+      o.item_id,
+      date_trunc('day', o.captured_at)::date AS day,
       AVG(o.price_unit_avg) AS avg_price
     FROM observations o
-    JOIN items i ON o.item_id = i.id
     WHERE 
       o.server = p_server
-      AND DATE(o.captured_at) BETWEEN p_from AND p_to
-    GROUP BY i.name, DATE(o.captured_at)
+      AND o.captured_at >= p_from::timestamptz
+      AND o.captured_at < (p_to + interval '1 day')::timestamptz
+      AND (p_filter_items IS NULL OR o.item_id IN (SELECT id FROM items WHERE name = ANY(p_filter_items)))
+    GROUP BY o.item_id, 2
   ),
-  daily_changes AS (
-    SELECT 
-      item_name,
-      day,
-      avg_price,
-      COALESCE(
-        (avg_price - LAG(avg_price) OVER (PARTITION BY item_name ORDER BY day))
-        / NULLIF(LAG(avg_price) OVER (PARTITION BY item_name ORDER BY day), 0) * 100
-      , 0) AS pct_change
-    FROM daily
+  daily_stats AS (
+      SELECT
+          item_id,
+          day,
+          avg_price,
+          -- PCT Change for Volatility
+          COALESCE(
+            (avg_price - LAG(avg_price) OVER (PARTITION BY item_id ORDER BY day))
+            / NULLIF(LAG(avg_price) OVER (PARTITION BY item_id ORDER BY day), 0) * 100
+          , 0) AS pct_change,
+          -- MA7 (Rolling)
+          AVG(avg_price) OVER (PARTITION BY item_id ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as ma7_rolling,
+          -- Rank to identify the last day
+          ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY day DESC) as rn
+      FROM daily
   ),
-  item_stats AS (
-    SELECT 
-      dc.item_name,
-      STDDEV(dc.pct_change) AS volatility_calc,
-      (SELECT d2.avg_price FROM daily d2 WHERE d2.item_name = dc.item_name ORDER BY day DESC LIMIT 1) AS latest_price,
-      AVG(dc.avg_price) FILTER (WHERE dc.day >= (SELECT MAX(d3.day) FROM daily d3 WHERE d3.item_name = dc.item_name) - INTERVAL '6 days') AS ma7_calc
-    FROM daily_changes dc
-    GROUP BY dc.item_name
-    HAVING COUNT(DISTINCT dc.day) >= 3
+  aggregated_stats AS (
+      SELECT
+          item_id,
+          -- Volatility over the whole period
+          STDDEV(pct_change) as volatility_calc,
+          -- Latest price (from the row with rn=1)
+          MAX(CASE WHEN rn = 1 THEN avg_price END) as latest_price,
+          -- MA7 (from the row with rn=1)
+          MAX(CASE WHEN rn = 1 THEN ma7_rolling END) as ma7_calc
+      FROM daily_stats
+      GROUP BY item_id
+      HAVING COUNT(*) >= 3 -- Ensure enough data points
   )
   SELECT 
-    ist.item_name,
+    i.name as item_name,
     p_server AS server,
-    ROUND(ist.latest_price, 0) AS current_price,
-    ROUND(ist.ma7_calc, 0) AS ma7,
-    ROUND(COALESCE(ist.volatility_calc, 0), 2) AS volatility,
-    ROUND(ist.ma7_calc * (1 - COALESCE(ist.volatility_calc, 0)/100), 0) AS target_price,
+    ROUND(s.latest_price, 0) AS current_price,
+    ROUND(s.ma7_calc, 0) AS ma7,
+    ROUND(COALESCE(s.volatility_calc, 0), 2) AS volatility,
+    ROUND(s.ma7_calc * (1 - COALESCE(s.volatility_calc, 0)/100), 0) AS target_price,
     ROUND(
-      ((ist.ma7_calc * (1 - COALESCE(ist.volatility_calc, 0)/100) - ist.latest_price) 
-       / NULLIF(ist.ma7_calc * (1 - COALESCE(ist.volatility_calc, 0)/100), 0)) * 100
+      ((s.ma7_calc * (1 - COALESCE(s.volatility_calc, 0)/100) - s.latest_price) 
+       / NULLIF(s.ma7_calc * (1 - COALESCE(s.volatility_calc, 0)/100), 0)) * 100
     , 2) AS discount_pct
-  FROM item_stats ist
+  FROM aggregated_stats s
+  JOIN items i ON s.item_id = i.id
   WHERE 
-    ist.latest_price IS NOT NULL 
-    AND ist.ma7_calc IS NOT NULL
-    AND ist.volatility_calc IS NOT NULL
-    AND ist.latest_price < (ist.ma7_calc * (1 - ist.volatility_calc/100))
-    AND (p_min_price IS NULL OR ist.latest_price >= p_min_price)
-    AND (p_max_price IS NULL OR ist.latest_price <= p_max_price)
+    s.latest_price IS NOT NULL 
+    AND s.ma7_calc IS NOT NULL
+    AND s.volatility_calc IS NOT NULL
+    AND s.latest_price < (s.ma7_calc * (1 - s.volatility_calc/100))
+    AND (p_min_price IS NULL OR s.latest_price >= p_min_price)
+    AND (p_max_price IS NULL OR s.latest_price <= p_max_price)
   ORDER BY discount_pct DESC
   LIMIT p_limit;
 $$;
@@ -379,7 +392,8 @@ CREATE OR REPLACE FUNCTION sell_opportunities_v3(
   p_to DATE,
   p_limit INT DEFAULT 20,
   p_min_price NUMERIC DEFAULT NULL,
-  p_max_price NUMERIC DEFAULT NULL
+  p_max_price NUMERIC DEFAULT NULL,
+  p_filter_items TEXT[] DEFAULT NULL
 )
 RETURNS TABLE (
   item_name TEXT,
@@ -395,56 +409,66 @@ STABLE
 AS $$
   WITH daily AS (
     SELECT 
-      i.name as item_name,
-      DATE(o.captured_at) AS day,
+      o.item_id,
+      date_trunc('day', o.captured_at)::date AS day,
       AVG(o.price_unit_avg) AS avg_price
     FROM observations o
-    JOIN items i ON o.item_id = i.id
     WHERE 
       o.server = p_server
-      AND DATE(o.captured_at) BETWEEN p_from AND p_to
-    GROUP BY i.name, DATE(o.captured_at)
+      AND o.captured_at >= p_from::timestamptz
+      AND o.captured_at < (p_to + interval '1 day')::timestamptz
+      AND (p_filter_items IS NULL OR o.item_id IN (SELECT id FROM items WHERE name = ANY(p_filter_items)))
+    GROUP BY o.item_id, 2
   ),
-  daily_changes AS (
-    SELECT 
-      item_name,
-      day,
-      avg_price,
-      COALESCE(
-        (avg_price - LAG(avg_price) OVER (PARTITION BY item_name ORDER BY day))
-        / NULLIF(LAG(avg_price) OVER (PARTITION BY item_name ORDER BY day), 0) * 100
-      , 0) AS pct_change
-    FROM daily
+  daily_stats AS (
+      SELECT
+          item_id,
+          day,
+          avg_price,
+          -- PCT Change for Volatility
+          COALESCE(
+            (avg_price - LAG(avg_price) OVER (PARTITION BY item_id ORDER BY day))
+            / NULLIF(LAG(avg_price) OVER (PARTITION BY item_id ORDER BY day), 0) * 100
+          , 0) AS pct_change,
+          -- MA7 (Rolling)
+          AVG(avg_price) OVER (PARTITION BY item_id ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as ma7_rolling,
+          -- Rank to identify the last day
+          ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY day DESC) as rn
+      FROM daily
   ),
-  item_stats AS (
-    SELECT 
-      dc.item_name,
-      STDDEV(dc.pct_change) AS volatility_calc,
-      (SELECT d2.avg_price FROM daily d2 WHERE d2.item_name = dc.item_name ORDER BY day DESC LIMIT 1) AS latest_price,
-      AVG(dc.avg_price) FILTER (WHERE dc.day >= (SELECT MAX(d3.day) FROM daily d3 WHERE d3.item_name = dc.item_name) - INTERVAL '6 days') AS ma7_calc
-    FROM daily_changes dc
-    GROUP BY dc.item_name
-    HAVING COUNT(DISTINCT dc.day) >= 3
+  aggregated_stats AS (
+      SELECT
+          item_id,
+          -- Volatility over the whole period
+          STDDEV(pct_change) as volatility_calc,
+          -- Latest price (from the row with rn=1)
+          MAX(CASE WHEN rn = 1 THEN avg_price END) as latest_price,
+          -- MA7 (from the row with rn=1)
+          MAX(CASE WHEN rn = 1 THEN ma7_rolling END) as ma7_calc
+      FROM daily_stats
+      GROUP BY item_id
+      HAVING COUNT(*) >= 3 -- Ensure enough data points
   )
   SELECT 
-    ist.item_name,
+    i.name as item_name,
     p_server AS server,
-    ROUND(ist.latest_price, 0) AS current_price,
-    ROUND(ist.ma7_calc, 0) AS ma7,
-    ROUND(COALESCE(ist.volatility_calc, 0), 2) AS volatility,
-    ROUND(ist.ma7_calc * (1 + COALESCE(ist.volatility_calc, 0)/100), 0) AS target_price,
+    ROUND(s.latest_price, 0) AS current_price,
+    ROUND(s.ma7_calc, 0) AS ma7,
+    ROUND(COALESCE(s.volatility_calc, 0), 2) AS volatility,
+    ROUND(s.ma7_calc * (1 + COALESCE(s.volatility_calc, 0)/100), 0) AS target_price,
     ROUND(
-      ((ist.latest_price - (ist.ma7_calc * (1 + COALESCE(ist.volatility_calc, 0)/100))) 
-       / NULLIF(ist.ma7_calc * (1 + COALESCE(ist.volatility_calc, 0)/100), 0)) * 100
+      ((s.latest_price - (s.ma7_calc * (1 + COALESCE(s.volatility_calc, 0)/100))) 
+       / NULLIF(s.ma7_calc * (1 + COALESCE(s.volatility_calc, 0)/100), 0)) * 100
     , 2) AS premium_pct
-  FROM item_stats ist
+  FROM aggregated_stats s
+  JOIN items i ON s.item_id = i.id
   WHERE 
-    ist.latest_price IS NOT NULL 
-    AND ist.ma7_calc IS NOT NULL
-    AND ist.volatility_calc IS NOT NULL
-    AND ist.latest_price > (ist.ma7_calc * (1 + ist.volatility_calc/100))
-    AND (p_min_price IS NULL OR ist.latest_price >= p_min_price)
-    AND (p_max_price IS NULL OR ist.latest_price <= p_max_price)
+    s.latest_price IS NOT NULL 
+    AND s.ma7_calc IS NOT NULL
+    AND s.volatility_calc IS NOT NULL
+    AND s.latest_price > (s.ma7_calc * (1 + s.volatility_calc/100))
+    AND (p_min_price IS NULL OR s.latest_price >= p_min_price)
+    AND (p_max_price IS NULL OR s.latest_price <= p_max_price)
   ORDER BY premium_pct DESC
   LIMIT p_limit;
 $$;

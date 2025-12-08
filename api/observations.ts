@@ -77,6 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { item_name, server, captured_at, price_unit_avg } = result.data;
 
+    // 1. Insert into OLD table (market_observations)
     const { data, error } = await supabase
       .from('market_observations')
       .insert({
@@ -96,6 +97,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: 'db_insert_failed', details: error.message });
     }
 
+    // 2. Insert into NEW table (observations) - Dual Write
+    let v3Data = null;
+    try {
+      const { data: itemId, error: rpcError } = await supabase.rpc('get_or_create_item_id', {
+        p_name: item_name,
+        p_category: null
+      });
+
+      if (!rpcError && itemId) {
+        const { data: obsData, error: obsError } = await supabase.from('observations').insert({
+          item_id: itemId,
+          server,
+          price_unit_avg,
+          captured_at,
+          nb_lots: 1,
+          source_client: 'manual_web_edit'
+        }).select().single();
+
+        if (!obsError) {
+          v3Data = obsData;
+        } else {
+          console.error('Dual Write Insert Error:', obsError);
+        }
+      } else {
+        console.error('Dual Write RPC Error:', rpcError);
+      }
+    } catch (e) {
+      console.error('Dual Write Exception:', e);
+    }
+
+    // Return V3 data if available (so frontend gets the correct ID for subsequent updates/deletes)
+    if (v3Data) {
+      return res.status(200).json({ status: 'ok', data: v3Data });
+    }
+
     return res.status(200).json({ status: 'ok', data });
   }
 
@@ -108,8 +144,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { id, price_unit_avg } = result.data;
 
+    // MIGRATION V3: Update NEW table (observations)
+    // The ID comes from the frontend which reads from V3 tables.
     const { error } = await supabase
-      .from('market_observations')
+      .from('observations')
       .update({ price_unit_avg })
       .eq('id', id);
 
@@ -130,8 +168,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { id } = result.data;
 
+    // MIGRATION V3: Delete from NEW table (observations)
     const { error } = await supabase
-      .from('market_observations')
+      .from('observations')
       .delete()
       .eq('id', id);
 
