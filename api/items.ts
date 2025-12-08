@@ -60,11 +60,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { old_item_name, new_item_name, server } = result.data;
 
+    // MIGRATION V3: Update items table directly
+    // Note: This updates the item name globally, ignoring the server parameter
     const { error } = await supabase
-      .from('market_observations')
-      .update({ item_name: new_item_name })
-      .eq('item_name', old_item_name)
-      .eq('server', server);
+      .from('items')
+      .update({ name: new_item_name })
+      .eq('name', old_item_name);
 
     if (error) {
       console.error('Supabase update error:', error);
@@ -107,7 +108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           return res.status(400).json({ error: 'Invalid date format' });
         }
 
-        const { data, error } = await supabase.rpc('item_stats', {
+        const { data, error } = await supabase.rpc('item_stats_v3', {
           p_item_name: item,
           p_server: server,
           p_from: fromDate.toISOString().split('T')[0],
@@ -118,6 +119,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           console.error('Supabase RPC error:', error);
           return res.status(500).json({ error: error.message });
         }
+
 
         const rawStats = data && data.length > 0 ? data[0] : null;
         
@@ -144,7 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 2. List Servers (mode=servers)
     if (mode === 'servers') {
-      const { data, error } = await supabase.rpc('get_unique_servers');
+      const { data, error } = await supabase.rpc('get_unique_servers_v3');
       if (error) {
         console.error('Supabase error in /api/items (servers):', error);
         return res.status(500).json({ error: 'database_error', message: error.message });
@@ -167,7 +169,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       console.log('Search params:', { search, server, limit, offset });
 
-      let query = supabase.rpc('items_with_latest_stats');
+      let query = supabase.rpc('items_with_latest_stats_v3');
 
       if (server) {
         query = query.eq('server', server);

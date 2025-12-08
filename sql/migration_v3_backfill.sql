@@ -19,7 +19,9 @@ SELECT
 FROM market_observations mo
 JOIN items i ON mo.item_name = i.name
 -- Clause WHERE pour éviter les doublons si le Dual Write a déjà commencé
-WHERE mo.captured_at < (SELECT MIN(captured_at) FROM observations); 
+-- Si la table est vide (MIN renvoie NULL), on prend tout. Sinon on prend ce qui est plus vieux que le début du Dual Write.
+WHERE (SELECT MIN(captured_at) FROM observations) IS NULL 
+   OR mo.captured_at < (SELECT MIN(captured_at) FROM observations); 
 
 -- C. Migrer les "Known Items" (Items inconnus saisis manuellement)
 -- On met à jour la table items avec les GID provenant de l'ancienne table known_items

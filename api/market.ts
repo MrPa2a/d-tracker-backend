@@ -78,18 +78,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     switch (type) {
       case 'index':
-        rpcName = 'market_index_v2';
+        rpcName = 'market_index_v3';
         rpcParams.p_filter_items = filterItems;
         break;
       case 'movers':
-        rpcName = 'get_movers_v2';
+        rpcName = 'get_movers_v3';
         rpcParams.p_limit = limit;
         rpcParams.p_min_price = minPrice;
         rpcParams.p_max_price = maxPrice;
         rpcParams.p_filter_items = filterItems;
         break;
       case 'volatility':
-        rpcName = 'get_volatility_rankings_v2';
+        rpcName = 'get_volatility_rankings_v3';
         rpcParams.p_limit = limit;
         rpcParams.p_order = order;
         rpcParams.p_min_price = minPrice;
@@ -97,14 +97,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         rpcParams.p_filter_items = filterItems;
         break;
       case 'opportunities':
-        rpcName = 'investment_opportunities_v2';
+        rpcName = 'investment_opportunities_v3';
         rpcParams.p_limit = limit;
         rpcParams.p_min_price = minPrice;
         rpcParams.p_max_price = maxPrice;
         rpcParams.p_filter_items = filterItems;
         break;
       case 'sell-opportunities':
-        rpcName = 'sell_opportunities_v2';
+        rpcName = 'sell_opportunities_v3';
         rpcParams.p_limit = limit;
         rpcParams.p_min_price = minPrice;
         rpcParams.p_max_price = maxPrice;
@@ -114,7 +114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!item) {
           return res.status(400).json({ error: 'Missing required parameter: item' });
         }
-        rpcName = 'item_stats';
+        rpcName = 'item_stats_v3';
         rpcParams.p_item_name = item;
         break;
       default:

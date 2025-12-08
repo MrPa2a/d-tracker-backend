@@ -22,26 +22,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'GET') {
+    // MIGRATION V3: On lit depuis la table items avec le flag is_manually_added
     const { data, error } = await supabase
-      .from('known_items')
-      .select('gid, name');
+      .from('items')
+      .select('ankama_id, name')
+      .eq('is_manually_added', true);
 
     if (error) {
       return res.status(500).json({ error: error.message });
     }
 
-    // Convert to a map or list as preferred by client. 
-    // Client expects a dictionary GID -> Name usually, but list is fine.
-    return res.status(200).json(data);
+    // Mapping pour compatibilité client (ankama_id -> gid)
+    const mappedData = data?.map((row) => ({
+      gid: row.ankama_id,
+      name: row.name,
+    }));
+
+    return res.status(200).json(mappedData);
   }
 
   if (req.method === 'POST') {
     try {
       const body = createItemSchema.parse(req.body);
       
+      // MIGRATION V3: On écrit dans items
+      // On utilise le nom comme clé de réconciliation
       const { error } = await supabase
-        .from('known_items')
-        .upsert({ gid: body.gid, name: body.name }, { onConflict: 'gid' });
+        .from('items')
+        .upsert({ 
+          name: body.name, 
+          ankama_id: body.gid,
+          is_manually_added: true 
+        }, { onConflict: 'name' });
 
       if (error) {
         return res.status(500).json({ error: error.message });

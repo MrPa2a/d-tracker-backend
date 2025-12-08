@@ -128,10 +128,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     // On récupère directement les observations brutes pour avoir tous les points (intraday)
+    // MIGRATION V3: On passe par la table observations et on joint items
     const { data, error } = await supabase
-      .from('market_observations')
-      .select('id, captured_at, price_unit_avg')
-      .eq('item_name', item)
+      .from('observations')
+      .select('id, captured_at, price_unit_avg, items!inner(name)')
+      .eq('items.name', item)
       .eq('server', server)
       .gte('captured_at', fromIso)
       .lte('captured_at', toIso)
