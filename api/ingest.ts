@@ -21,6 +21,7 @@ if (!supabaseUrl || !supabaseServiceRoleKey || !ingestApiToken) {
 // --------- Validation Zod ---------
 const observationSchema = z.object({
   item_name: z.string().min(1).max(255),
+  ankama_id: z.number().int().positive().optional(),
   server: z.string().min(1).max(255),
   captured_at: z.string().datetime(), // ISO 8601
   price_unit_avg: z.number().nonnegative(),
@@ -115,6 +116,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Appel RPC pour obtenir l'ID (et gérer la catégorie si on l'avait)
       const { data: itemId, error: rpcError } = await supabase!.rpc('get_or_create_item_id', {
         p_name: obs.item_name,
+        p_ankama_id: obs.ankama_id || null,
         p_category: null // Pas encore de catégorie dans le payload actuel
       });
 
