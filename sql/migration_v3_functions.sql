@@ -39,6 +39,8 @@ END;
 $$;
 
 -- Fonction d'ingestion intelligente avec déduplication (15 min)
+DROP FUNCTION IF EXISTS public.ingest_observation(text, integer, text, numeric, integer, timestamptz, text);
+
 CREATE OR REPLACE FUNCTION ingest_observation(
   p_item_name TEXT,
   p_ankama_id INTEGER,
@@ -46,7 +48,8 @@ CREATE OR REPLACE FUNCTION ingest_observation(
   p_price_unit_avg NUMERIC,
   p_nb_lots INTEGER,
   p_captured_at TIMESTAMPTZ,
-  p_source_client TEXT
+  p_source_client TEXT,
+  p_category TEXT DEFAULT NULL
 )
 RETURNS BIGINT
 LANGUAGE plpgsql
@@ -58,7 +61,7 @@ DECLARE
   v_obs_id BIGINT;
 BEGIN
   -- 1. Récupérer ou créer l'item (via la fonction existante)
-  v_item_id := get_or_create_item_id(p_item_name, p_ankama_id, NULL);
+  v_item_id := get_or_create_item_id(p_item_name, p_ankama_id, p_category);
 
   -- 2. Vérifier la dernière observation pour cet item/serveur
   SELECT price_unit_avg, captured_at 

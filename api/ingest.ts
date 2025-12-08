@@ -29,6 +29,7 @@ const observationSchema = z.object({
   source_client: z.string().min(1).max(255),
   client_version: z.string().max(50).optional(),
   raw_item_name: z.string().max(255).optional(),
+  category: z.string().optional(),
 });
 
 type ObservationPayload = z.infer<typeof observationSchema>;
@@ -119,7 +120,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         p_price_unit_avg: obs.price_unit_avg,
         p_nb_lots: obs.nb_lots,
         p_captured_at: obs.captured_at,
-        p_source_client: obs.source_client
+        p_source_client: obs.source_client,
+        p_category: obs.category || null
       });
 
       if (rpcError) {
