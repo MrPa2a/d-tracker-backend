@@ -24,6 +24,7 @@ const updateItemSchema = z.object({
   old_item_name: z.string().min(1),
   new_item_name: z.string().min(1),
   server: z.string().min(1),
+  category: z.string().optional(),
 });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -58,13 +59,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'validation_error', details: result.error.flatten() });
     }
 
-    const { old_item_name, new_item_name, server } = result.data;
+    const { old_item_name, new_item_name, server, category } = result.data;
+
+    // Logic to handle category update
+    let category_id: number | null | undefined = undefined;
+
+    if (category !== undefined) {
+      if (category.trim() === '') {
+        category_id = null;
+      } else {
+        // Check if category exists
+        const { data: catData, error: catError } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('name', category)
+          .single();
+
+        if (catData) {
+          category_id = catData.id;
+        } else {
+          // Create category
+          const { data: newCat, error: createError } = await supabase
+            .from('categories')
+            .insert({ name: category })
+            .select('id')
+            .single();
+          
+          if (createError || !newCat) {
+             console.error('Error creating category:', createError);
+             return res.status(500).json({ error: 'category_creation_failed' });
+          }
+          category_id = newCat.id;
+        }
+      }
+    }
 
     // MIGRATION V3: Update items table directly
-    // Note: This updates the item name globally, ignoring the server parameter
+    const updatePayload: any = { name: new_item_name };
+    if (category_id !== undefined) {
+        updatePayload.category_id = category_id;
+    }
+
     const { error } = await supabase
       .from('items')
-      .update({ name: new_item_name })
+      .update(updatePayload)
       .eq('name', old_item_name);
 
     if (error) {
@@ -72,7 +110,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: 'db_update_failed' });
     }
 
-    return res.status(200).json({ status: 'ok', old_item_name, new_item_name, server });
+    return res.status(200).json({ status: 'ok', old_item_name, new_item_name, server, category });
   }
 
   // --- GET: List Items or Item Stats ---
