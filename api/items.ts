@@ -248,6 +248,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           last_observation_at: row.last_observation_at,
           last_price: row.last_price,
           category: row.category,
+          variation_24h: row.variation_24h,
         }))
       );
     } catch (err: any) {

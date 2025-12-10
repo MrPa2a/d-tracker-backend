@@ -490,35 +490,53 @@ AS $$
 $$;
 
 -- 8. Items With Latest Stats V3
+DROP FUNCTION IF EXISTS public.items_with_latest_stats_v3();
+
 CREATE OR REPLACE FUNCTION public.items_with_latest_stats_v3()
 RETURNS TABLE (
   item_name text,
   server text,
   last_observation_at timestamptz,
   last_price numeric,
-  category text
+  category text,
+  variation_24h numeric
 )
 LANGUAGE sql
 STABLE
 AS $$
+  WITH latest_obs AS (
+    SELECT DISTINCT ON (o.item_id, o.server)
+      o.item_id,
+      o.server,
+      o.captured_at,
+      o.price_unit_avg
+    FROM observations o
+    ORDER BY o.item_id, o.server, o.captured_at DESC
+  ),
+  prev_obs AS (
+    SELECT DISTINCT ON (o.item_id, o.server)
+      o.item_id,
+      o.server,
+      o.price_unit_avg
+    FROM observations o
+    WHERE o.captured_at < NOW() - INTERVAL '24 hours'
+    ORDER BY o.item_id, o.server, o.captured_at DESC
+  )
   SELECT
     i.name AS item_name,
-    o.server,
-    MAX(o.captured_at) AS last_observation_at,
-    (
-      SELECT o2.price_unit_avg
-      FROM observations o2
-      WHERE o2.item_id = i.id
-        AND o2.server = o.server
-      ORDER BY o2.captured_at DESC
-      LIMIT 1
-    ) AS last_price,
-    c.name AS category
-  FROM observations o
-  JOIN items i ON o.item_id = i.id
+    lo.server,
+    lo.captured_at AS last_observation_at,
+    lo.price_unit_avg AS last_price,
+    c.name AS category,
+    CASE 
+        WHEN po.price_unit_avg IS NULL OR po.price_unit_avg = 0 THEN 0
+        ELSE ROUND(((lo.price_unit_avg - po.price_unit_avg) / po.price_unit_avg * 100)::numeric, 2)
+    END as variation_24h
+  FROM latest_obs lo
+  JOIN items i ON lo.item_id = i.id
   LEFT JOIN categories c ON i.category_id = c.id
-  GROUP BY i.id, i.name, o.server, c.name
-  ORDER BY i.name, o.server;
+  LEFT JOIN prev_obs po ON lo.item_id = po.item_id AND lo.server = po.server
+  ORDER BY i.name, lo.server;
 $$;
 
 -- 9. Get Unique Servers V3
