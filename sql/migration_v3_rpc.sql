@@ -499,7 +499,7 @@ RETURNS TABLE (
   last_observation_at timestamptz,
   last_price numeric,
   category text,
-  variation_24h numeric
+  average_price numeric
 )
 LANGUAGE sql
 STABLE
@@ -513,14 +513,14 @@ AS $$
     FROM observations o
     ORDER BY o.item_id, o.server, o.captured_at DESC
   ),
-  prev_obs AS (
-    SELECT DISTINCT ON (o.item_id, o.server)
-      o.item_id,
-      o.server,
-      o.price_unit_avg
-    FROM observations o
-    WHERE o.captured_at < NOW() - INTERVAL '24 hours'
-    ORDER BY o.item_id, o.server, o.captured_at DESC
+  avg_obs AS (
+    SELECT 
+      item_id,
+      server,
+      AVG(price_unit_avg) as average_price
+    FROM observations
+    WHERE captured_at >= NOW() - INTERVAL '30 days'
+    GROUP BY item_id, server
   )
   SELECT
     i.name AS item_name,
@@ -528,14 +528,11 @@ AS $$
     lo.captured_at AS last_observation_at,
     lo.price_unit_avg AS last_price,
     c.name AS category,
-    CASE 
-        WHEN po.price_unit_avg IS NULL OR po.price_unit_avg = 0 THEN 0
-        ELSE ROUND(((lo.price_unit_avg - po.price_unit_avg) / po.price_unit_avg * 100)::numeric, 2)
-    END as variation_24h
+    ROUND(COALESCE(ao.average_price, lo.price_unit_avg), 0) as average_price
   FROM latest_obs lo
   JOIN items i ON lo.item_id = i.id
   LEFT JOIN categories c ON i.category_id = c.id
-  LEFT JOIN prev_obs po ON lo.item_id = po.item_id AND lo.server = po.server
+  LEFT JOIN avg_obs ao ON lo.item_id = ao.item_id AND lo.server = ao.server
   ORDER BY i.name, lo.server;
 $$;
 
