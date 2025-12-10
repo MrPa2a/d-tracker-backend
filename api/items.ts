@@ -20,6 +20,11 @@ function decodeQueryValue(value: string | string[] | undefined): string | null {
   }
 }
 
+// Helper to remove accents
+function removeAccents(str: string): string {
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 const updateItemSchema = z.object({
   old_item_name: z.string().min(1),
   new_item_name: z.string().min(1),
@@ -219,10 +224,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (search) {
-        query = query.ilike('item_name', `%${search}%`);
+        const normalizedSearch = removeAccents(search);
+        query = query.ilike('normalized_name', `%${normalizedSearch}%`);
       }
 
-      const sortColumn = sortBy === 'price' ? 'last_price' : 'item_name';
+      const sortColumn = sortBy === 'price' ? 'last_price' : 'normalized_name';
       query = query.order(sortColumn, { ascending: sortOrder === 'asc' });
 
       const from = parseInt(offset as string);

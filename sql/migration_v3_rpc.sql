@@ -499,7 +499,8 @@ RETURNS TABLE (
   last_observation_at timestamptz,
   last_price numeric,
   category text,
-  average_price numeric
+  average_price numeric,
+  normalized_name text
 )
 LANGUAGE sql
 STABLE
@@ -528,7 +529,8 @@ AS $$
     lo.captured_at AS last_observation_at,
     lo.price_unit_avg AS last_price,
     c.name AS category,
-    ROUND(COALESCE(ao.average_price, lo.price_unit_avg), 0) as average_price
+    ROUND(COALESCE(ao.average_price, lo.price_unit_avg), 0) as average_price,
+    unaccent(lower(i.name)) AS normalized_name
   FROM latest_obs lo
   JOIN items i ON lo.item_id = i.id
   LEFT JOIN categories c ON i.category_id = c.id
