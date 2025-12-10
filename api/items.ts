@@ -204,13 +204,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const search = decodeQueryValue(req.query.search);
       const server = decodeQueryValue(req.query.server);
+      const category = decodeQueryValue(req.query.category);
 
-      console.log('Search params:', { search, server, limit, offset });
+      console.log('Search params:', { search, server, category, limit, offset });
 
       let query = supabase.rpc('items_with_latest_stats_v3');
 
       if (server) {
         query = query.eq('server', server);
+      }
+
+      if (category) {
+        query = query.eq('category', category);
       }
 
       if (search) {
