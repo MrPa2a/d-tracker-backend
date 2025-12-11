@@ -69,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // --- Lists Mode (CRUD Lists) ---
 
   if (req.method === 'GET') {
-    const { profileId, server, range } = req.query;
+    const { profileId, server, range, id } = req.query;
 
     // 1. Fetch lists with basic item info (name, category)
     // Note: items table does not have server/price. We fetch category via relation.
@@ -77,7 +77,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .from('lists')
       .select('*, list_items(item_id, items(name, categories(name)))');
 
-    if (profileId) {
+    if (id) {
+      query = query.eq('id', id);
+    } else if (profileId) {
       query = query.or(`scope.eq.public,and(scope.eq.private,profile_id.eq.${profileId})`);
     } else {
       query = query.eq('scope', 'public');
@@ -166,7 +168,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // Use stats for price and server
           server: stats?.server,
           last_price: stats?.last_price,
-          previous_price: stats?.previous_price
+          previous_price: stats?.previous_price,
+          last_observation_at: stats?.last_observation_at,
+          average_price: stats?.average_price
         };
       }).filter((i: any) => i.item_name !== 'Unknown Item')
     }));
