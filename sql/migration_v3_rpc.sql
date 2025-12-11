@@ -549,4 +549,55 @@ AS $$
   SELECT DISTINCT server FROM observations ORDER BY server;
 $$;
 
+-- 10. Items with Variation V3 (for Lists)
+CREATE OR REPLACE FUNCTION public.items_with_variation_v3(
+  p_item_names text[],
+  p_server text DEFAULT NULL,
+  p_from timestamptz DEFAULT (NOW() - INTERVAL '24 hours')
+)
+RETURNS TABLE (
+  id int,
+  item_name text,
+  server text,
+  last_price numeric,
+  previous_price numeric,
+  category text
+)
+LANGUAGE sql
+STABLE
+AS $$
+  WITH latest AS (
+    SELECT DISTINCT ON (o.item_id, o.server)
+      o.item_id, o.server, o.price_unit_avg as price
+    FROM observations o
+    JOIN items i ON o.item_id = i.id
+    WHERE i.name = ANY(p_item_names)
+      AND (p_server IS NULL OR o.server = p_server)
+    ORDER BY o.item_id, o.server, o.captured_at DESC
+  ),
+  previous AS (
+    -- On cherche la PREMIÈRE observation DANS la période (>= p_from)
+    -- Cela permet de calculer l'évolution sur la période disponible si l'historique est court
+    SELECT DISTINCT ON (o.item_id, o.server)
+      o.item_id, o.server, o.price_unit_avg as price
+    FROM observations o
+    JOIN items i ON o.item_id = i.id
+    WHERE i.name = ANY(p_item_names)
+      AND (p_server IS NULL OR o.server = p_server)
+      AND o.captured_at >= p_from
+    ORDER BY o.item_id, o.server, o.captured_at ASC
+  )
+  SELECT 
+    i.id,
+    i.name AS item_name,
+    l.server,
+    l.price AS last_price,
+    COALESCE(p.price, l.price) AS previous_price,
+    c.name AS category
+  FROM latest l
+  JOIN items i ON l.item_id = i.id
+  LEFT JOIN previous p ON l.item_id = p.item_id AND l.server = p.server
+  LEFT JOIN categories c ON i.category_id = c.id;
+$$;
+
 

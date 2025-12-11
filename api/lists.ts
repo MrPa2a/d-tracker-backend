@@ -69,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // --- Lists Mode (CRUD Lists) ---
 
   if (req.method === 'GET') {
-    const { profileId, server } = req.query;
+    const { profileId, server, range } = req.query;
 
     // 1. Fetch lists with basic item info (name, category)
     // Note: items table does not have server/price. We fetch category via relation.
@@ -107,15 +107,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let statsMap = new Map<string, any>();
 
     if (allItemNames.size > 0) {
-      let statsQuery = supabase
-        .rpc('items_with_latest_stats_v3')
-        .in('item_name', Array.from(allItemNames));
+      // Calculate from date based on range
+      let fromDate = new Date();
+      const r = (range as string) || '24h';
       
-      if (server) {
-        statsQuery = statsQuery.eq('server', server);
-      }
+      if (r === '7d') fromDate.setDate(fromDate.getDate() - 7);
+      else if (r === '30d') fromDate.setDate(fromDate.getDate() - 30);
+      else if (r === '90d') fromDate.setDate(fromDate.getDate() - 90);
+      else if (r === '365d') fromDate.setDate(fromDate.getDate() - 365);
+      else fromDate.setDate(fromDate.getDate() - 1); // Default 24h
 
-      const { data: statsData, error: statsError } = await statsQuery;
+      const { data: statsData, error: statsError } = await supabase
+        .rpc('items_with_variation_v3', {
+          p_item_names: Array.from(allItemNames),
+          p_server: server || null,
+          p_from: fromDate.toISOString()
+        });
 
       if (statsError) {
         console.error('Error fetching item stats for lists:', statsError);
@@ -158,7 +165,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           category: li.items?.categories?.name || stats?.category,
           // Use stats for price and server
           server: stats?.server,
-          last_price: stats?.last_price
+          last_price: stats?.last_price,
+          previous_price: stats?.previous_price
         };
       }).filter((i: any) => i.item_name !== 'Unknown Item')
     }));
