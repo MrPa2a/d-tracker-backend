@@ -20,7 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // --- Items Mode (Add/Remove items from list) ---
   if (mode === 'items') {
     if (req.method === 'POST') {
-      const { listId, itemId } = req.body;
+      const { listId, itemId, quantity } = req.body;
 
       if (!listId || !itemId) {
         return res.status(400).json({ error: 'invalid_input', message: 'listId and itemId are required' });
@@ -28,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { error } = await supabase
         .from('list_items')
-        .insert([{ list_id: listId, item_id: itemId }]);
+        .insert([{ list_id: listId, item_id: itemId, quantity: quantity || 1 }]);
 
       if (error) {
         // Ignore duplicate key error
@@ -40,6 +40,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       return res.status(200).json({ message: 'Item added to list' });
+    }
+
+    if (req.method === 'PUT') {
+      const { listId, itemId, quantity } = req.body;
+
+      if (!listId || !itemId || quantity === undefined) {
+        return res.status(400).json({ error: 'invalid_input', message: 'listId, itemId and quantity are required' });
+      }
+
+      const { error } = await supabase
+        .from('list_items')
+        .update({ quantity })
+        .eq('list_id', listId)
+        .eq('item_id', itemId);
+
+      if (error) {
+        console.error('Error updating item in list:', error);
+        return res.status(500).json({ error: 'database_error', message: error.message });
+      }
+
+      return res.status(200).json({ message: 'Item updated in list' });
     }
 
     if (req.method === 'DELETE') {
@@ -75,7 +96,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Note: items table does not have server/price. We fetch category via relation.
     let query = supabase
       .from('lists')
-      .select('*, list_items(item_id, items(name, categories(name)))');
+      .select('*, list_items(item_id, quantity, items(name, categories(name)))');
 
     if (id) {
       query = query.eq('id', id);
@@ -163,6 +184,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return {
           item_id: li.item_id,
           item_name: itemName,
+          quantity: li.quantity || 1,
           // Use category from items table join if available, else from stats
           category: li.items?.categories?.name || stats?.category,
           // Use stats for price and server
