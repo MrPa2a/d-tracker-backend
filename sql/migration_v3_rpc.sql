@@ -494,6 +494,7 @@ DROP FUNCTION IF EXISTS public.items_with_latest_stats_v3();
 
 CREATE OR REPLACE FUNCTION public.items_with_latest_stats_v3()
 RETURNS TABLE (
+  id integer,
   item_name text,
   server text,
   last_observation_at timestamptz,
@@ -524,6 +525,7 @@ AS $$
     GROUP BY item_id, server
   )
   SELECT
+    i.id,
     i.name AS item_name,
     lo.server,
     lo.captured_at AS last_observation_at,

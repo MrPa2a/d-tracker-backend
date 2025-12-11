@@ -249,6 +249,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       return res.status(200).json(
         (data || []).map((row: any) => ({
+          id: row.id,
           item_name: row.item_name,
           server: row.server,
           last_observation_at: row.last_observation_at,
