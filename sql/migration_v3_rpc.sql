@@ -496,6 +496,7 @@ CREATE OR REPLACE FUNCTION public.items_with_latest_stats_v3()
 RETURNS TABLE (
   id integer,
   item_name text,
+  ankama_id integer,
   server text,
   last_observation_at timestamptz,
   last_price numeric,
@@ -527,6 +528,7 @@ AS $$
   SELECT
     i.id,
     i.name AS item_name,
+    i.ankama_id,
     lo.server,
     lo.captured_at AS last_observation_at,
     lo.price_unit_avg AS last_price,
