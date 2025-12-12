@@ -122,6 +122,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(201).json(data);
   }
 
+  if (req.method === 'DELETE') {
+    const { id } = req.query;
+
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ error: 'invalid_input', message: 'id is required' });
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting profile:', error);
+      return res.status(500).json({ error: 'database_error', message: error.message });
+    }
+
+    return res.status(200).json({ status: 'ok' });
+  }
+
   res.setHeader('Allow', 'GET, POST, DELETE');
   return res.status(405).json({ error: 'method_not_allowed' });
 }

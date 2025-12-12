@@ -245,5 +245,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ message: 'List deleted' });
   }
 
+  if (req.method === 'PUT') {
+    const { id, name, scope, profileId } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ error: 'invalid_input', message: 'id is required' });
+    }
+
+    // Only allow updating name and scope (and profile_id implicitly when changing scope)
+    const updates: any = {};
+    if (name) updates.name = name;
+    
+    if (scope) {
+      if (scope === 'public') {
+        updates.scope = 'public';
+        updates.profile_id = null; // Public lists have no owner
+      } else if (scope === 'private') {
+        // We generally don't want to allow Public -> Private via this simple API as it requires assigning an owner
+        // But if the user provides a profileId, we could allow it.
+        // For now, the requirement is specifically Private -> Public.
+        if (profileId) {
+          updates.scope = 'private';
+          updates.profile_id = profileId;
+        } else {
+           // If no profileId provided, we can't make it private if it was public (or if we don't know the owner)
+           // But if it's already private, we just keep it private.
+           // Let's just handle the requested feature: Private -> Public
+        }
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('lists')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating list:', error);
+      return res.status(500).json({ error: 'database_error', message: error.message });
+    }
+
+    return res.status(200).json(data);
+  }
+
   return res.status(405).json({ error: 'method_not_allowed' });
 }
