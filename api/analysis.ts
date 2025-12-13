@@ -81,6 +81,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (period) rpcParams.p_period_days = parseInt(period, 10);
       if (filterItems) rpcParams.p_filter_items = filterItems.split(',').map(s => s.trim()).filter(Boolean);
 
+    } else if (type === 'trends') {
+      rpcName = 'market_trends_v1';
+
+      const minPrice = decodeQueryValue(req.query.min_price);
+      const maxPrice = decodeQueryValue(req.query.max_price);
+      const period = decodeQueryValue(req.query.period);
+      const trendType = decodeQueryValue(req.query.trend_type);
+      const limit = decodeQueryValue(req.query.limit);
+      const categories = decodeQueryValue(req.query.categories);
+      const filterItems = decodeQueryValue(req.query.filter_items);
+
+      if (minPrice) rpcParams.p_min_price = parseFloat(minPrice);
+      if (maxPrice) rpcParams.p_max_price = parseFloat(maxPrice);
+      rpcParams.p_period_days = period ? parseInt(period, 10) : 30;
+      rpcParams.p_trend_type = trendType || 'bullish';
+      rpcParams.p_limit = limit ? parseInt(limit, 10) : 50;
+      
+      if (categories) rpcParams.p_categories = categories.split(',').map(s => s.trim()).filter(Boolean);
+      if (filterItems) rpcParams.p_filter_items = filterItems.split(',').map(s => s.trim()).filter(Boolean);
+
     } else {
       return res.status(400).json({ error: 'invalid_type', message: `Unknown analysis type: ${type}` });
     }
