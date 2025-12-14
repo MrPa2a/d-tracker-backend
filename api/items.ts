@@ -365,6 +365,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           last_price: row.last_price,
           category: row.category,
           average_price: row.average_price,
+          icon_url: row.icon_url
         }))
       );
     } catch (err: any) {

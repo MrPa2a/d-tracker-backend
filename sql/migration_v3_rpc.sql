@@ -502,7 +502,8 @@ RETURNS TABLE (
   last_price numeric,
   category text,
   average_price numeric,
-  normalized_name text
+  normalized_name text,
+  icon_url text
 )
 LANGUAGE sql
 STABLE
@@ -534,7 +535,8 @@ AS $$
     lo.price_unit_avg AS last_price,
     c.name AS category,
     ROUND(COALESCE(ao.average_price, lo.price_unit_avg), 0) as average_price,
-    unaccent(lower(i.name)) AS normalized_name
+    unaccent(lower(i.name)) AS normalized_name,
+    i.icon_url
   FROM latest_obs lo
   JOIN items i ON lo.item_id = i.id
   LEFT JOIN categories c ON i.category_id = c.id
