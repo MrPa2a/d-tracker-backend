@@ -146,10 +146,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  // 6) Check for missing images
+  const missingImages: number[] = [];
+  const gidsToCheck = observations
+    .map(o => o.ankama_id)
+    .filter((id): id is number => !!id);
+  
+  if (gidsToCheck.length > 0) {
+    const uniqueGids = [...new Set(gidsToCheck)];
+    const { data: itemsWithoutImages } = await supabase!
+      .from('items')
+      .select('ankama_id')
+      .in('ankama_id', uniqueGids)
+      .is('icon_url', null);
+      
+    if (itemsWithoutImages) {
+      missingImages.push(...itemsWithoutImages.map(i => i.ankama_id));
+    }
+  }
+
   // 7) Réponse OK
   return res.status(201).json({
     status: 'ok',
     inserted: insertedIds.length,
     ids: insertedIds,
+    missing_images: missingImages
   });
 }

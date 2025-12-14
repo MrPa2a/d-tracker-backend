@@ -26,7 +26,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // MIGRATION V3: On lit depuis la table items avec le flag is_manually_added
     const { data, error } = await supabase
       .from('items')
-      .select('ankama_id, name, categories(name)')
+      .select('ankama_id, name, categories(name), icon_url')
       .eq('is_manually_added', true);
 
     if (error) {
@@ -37,7 +37,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const mappedData = data?.map((row: any) => ({
       gid: row.ankama_id,
       name: row.name,
-      category: row.categories?.name
+      category: row.categories?.name,
+      has_image: !!row.icon_url
     }));
 
     return res.status(200).json(mappedData);

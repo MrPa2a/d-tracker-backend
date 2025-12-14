@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import Busboy from 'busboy';
 import { setCors } from '../utils/cors';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
@@ -32,12 +33,111 @@ const updateItemSchema = z.object({
   category: z.string().optional(),
 });
 
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(req, res);
 
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
+  }
+
+  // --- POST: Upload Icon ---
+  if (req.method === 'POST') {
+    const { type } = req.query;
+
+    // Upload Icon
+    if (type === 'icon') {
+      const contentType = req.headers['content-type'] || '';
+      
+      // Check if it's a multipart request (file upload)
+      if (contentType.includes('multipart/form-data')) {
+        const busboy = Busboy({ headers: req.headers });
+        let gid: string | null = null;
+        let fileBuffer: Buffer | null = null;
+        let mimeType: string = 'image/png';
+
+        return new Promise<void>((resolve) => {
+          busboy.on('field', (fieldname, val) => {
+            if (fieldname === 'gid') {
+              gid = val;
+            }
+          });
+
+          busboy.on('file', (fieldname, file, info) => {
+            const { mimeType: mime } = info;
+            mimeType = mime;
+            const chunks: Buffer[] = [];
+            
+            file.on('data', (data) => {
+              chunks.push(data);
+            });
+            
+            file.on('end', () => {
+              fileBuffer = Buffer.concat(chunks);
+            });
+          });
+
+          busboy.on('finish', async () => {
+            if (!gid || !fileBuffer) {
+              res.status(400).json({ error: 'Missing gid or file' });
+              return resolve();
+            }
+
+            try {
+              const fileName = `${gid}.png`;
+              
+              // 1. Upload to Storage
+              const { data: uploadData, error: uploadError } = await supabase
+                .storage
+                .from('item-icons')
+                .upload(fileName, fileBuffer, {
+                  contentType: mimeType,
+                  upsert: true
+                });
+
+              if (uploadError) {
+                console.error('Upload error:', uploadError);
+                res.status(500).json({ error: uploadError.message });
+                return resolve();
+              }
+
+              // 2. Get Public URL
+              const { data: { publicUrl } } = supabase
+                .storage
+                .from('item-icons')
+                .getPublicUrl(fileName);
+
+              // 3. Update Database
+              const { error: dbError } = await supabase
+                .from('items')
+                .update({ icon_url: publicUrl })
+                .eq('ankama_id', parseInt(gid));
+
+              if (dbError) {
+                console.error('DB Update error:', dbError);
+                res.status(500).json({ error: dbError.message });
+                return resolve();
+              }
+
+              res.status(200).json({ success: true, url: publicUrl });
+              return resolve();
+
+            } catch (e: any) {
+              res.status(500).json({ error: e.message });
+              return resolve();
+            }
+          });
+
+          req.pipe(busboy);
+        });
+      }
+    }
   }
 
   // --- PUT: Update Item ---
@@ -52,9 +152,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: 'forbidden' });
     }
 
+    // Manual body parsing
+    let bodyStr = '';
+    await new Promise<void>((resolve, reject) => {
+        req.on('data', chunk => { bodyStr += chunk; });
+        req.on('end', () => resolve());
+        req.on('error', err => reject(err));
+    });
+
     let parsedBody: unknown;
     try {
-      parsedBody = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      parsedBody = JSON.parse(bodyStr);
     } catch (err) {
       return res.status(400).json({ error: 'invalid_json' });
     }
