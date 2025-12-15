@@ -23,7 +23,8 @@ RETURNS TABLE (
   price_change_pct NUMERIC,
   trend_type TEXT,
   consecutive_days INT,
-  history JSONB
+  history JSONB,
+  icon_url TEXT
 )
 LANGUAGE sql
 STABLE
@@ -102,7 +103,8 @@ AS $$
             WHEN t.last_dir = -1 AND t.prev_dir = -1 THEN 2
             ELSE 1
         END as consecutive_days,
-        t.history
+        t.history,
+        i.icon_url
     FROM item_trends t
     JOIN items i ON t.item_id = i.id
     LEFT JOIN categories c ON i.category_id = c.id

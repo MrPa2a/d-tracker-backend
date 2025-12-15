@@ -27,7 +27,8 @@ RETURNS TABLE (
   margin NUMERIC,
   volatility NUMERIC,
   last_seen_at TIMESTAMPTZ,
-  days_seen BIGINT
+  days_seen BIGINT,
+  icon_url TEXT
 )
 LANGUAGE sql
 STABLE
@@ -97,7 +98,8 @@ AS $$
     ROUND(((s.period_avg_price - lo.current_price) / NULLIF(s.period_avg_price, 0)) * 100, 2) AS margin,
     ROUND(COALESCE(s.volatility_calc, 0), 2) AS volatility,
     lo.last_seen_at,
-    s.days_seen
+    s.days_seen,
+    i.icon_url
   FROM aggregated_stats s
   JOIN latest_obs lo ON s.item_id = lo.item_id
   JOIN items i ON s.item_id = i.id

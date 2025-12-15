@@ -92,11 +92,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'GET') {
     const { profileId, server, range, id } = req.query;
 
-    // 1. Fetch lists with basic item info (name, category)
+    // 1. Fetch lists with basic item info (name, category, icon_url)
     // Note: items table does not have server/price. We fetch category via relation.
     let query = supabase
       .from('lists')
-      .select('*, list_items(item_id, quantity, items(name, categories(name)))');
+      .select('*, list_items(item_id, quantity, items(name, icon_url, categories(name)))');
 
     if (id) {
       query = query.eq('id', id);

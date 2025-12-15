@@ -28,6 +28,8 @@ AS $$
 $$;
 
 -- 2. Get Movers V3
+DROP FUNCTION IF EXISTS get_movers_v3(TEXT, DATE, DATE, INT, NUMERIC, NUMERIC, TEXT[], TEXT);
+
 CREATE OR REPLACE FUNCTION get_movers_v3(
     p_server TEXT,
     p_from DATE,
@@ -42,7 +44,8 @@ RETURNS TABLE (
     item_name TEXT,
     server TEXT,
     last_price NUMERIC,
-    pct_change NUMERIC
+    pct_change NUMERIC,
+    icon_url TEXT
 )
 LANGUAGE sql
 STABLE
@@ -78,7 +81,8 @@ AS $$
       case 
         when fl.first_avg = 0 then 0
         else round(((fl.last_avg - fl.first_avg) / fl.first_avg * 100)::numeric, 2)
-      end as pct_change
+      end as pct_change,
+      i.icon_url
   from first_last fl
   join items i on fl.item_id = i.id
   where 
@@ -98,6 +102,8 @@ AS $$
 $$;
 
 -- 3. Get Volatility Rankings V3
+DROP FUNCTION IF EXISTS get_volatility_rankings_v3(TEXT, DATE, DATE, INT, TEXT, NUMERIC, NUMERIC, TEXT[]);
+
 CREATE OR REPLACE FUNCTION get_volatility_rankings_v3(
     p_server TEXT,
     p_from DATE,
@@ -114,7 +120,8 @@ RETURNS TABLE (
     volatility NUMERIC,
     last_price NUMERIC,
     pct_change NUMERIC,
-    obs_count BIGINT
+    obs_count BIGINT,
+    icon_url TEXT
 )
 LANGUAGE sql
 STABLE
@@ -164,7 +171,8 @@ AS $$
         WHEN s.first_price = 0 THEN 0
         ELSE ROUND(((s.last_price - s.first_price) / s.first_price * 100)::numeric, 2)
     END AS pct_change,
-    s.obs_count
+    s.obs_count,
+    i.icon_url
   FROM stats s
   JOIN items i ON s.item_id = i.id
   WHERE 
@@ -193,7 +201,8 @@ RETURNS TABLE (
   signal TEXT,
   ma7 NUMERIC,
   current_price NUMERIC,
-  category TEXT
+  category TEXT,
+  icon_url TEXT
 )
 LANGUAGE sql
 STABLE
@@ -232,7 +241,7 @@ AS $$
     FROM daily_changes
   ),
   item_info AS (
-    SELECT c.name as category_name
+    SELECT c.name as category_name, i.icon_url
     FROM items i
     LEFT JOIN categories c ON i.category_id = c.id
     WHERE i.name = p_item_name
@@ -251,7 +260,8 @@ AS $$
     END AS signal,
     ROUND(COALESCE(stats.ma7_calc, 0::numeric), 0) AS ma7,
     ROUND(COALESCE(stats.latest_price, 0::numeric), 0) AS current_price,
-    item_info.category_name AS category
+    item_info.category_name AS category,
+    item_info.icon_url
   FROM stats, item_info;
 $$;
 
@@ -314,6 +324,8 @@ AS $$
 $$;
 
 -- 6. Investment Opportunities V3
+DROP FUNCTION IF EXISTS investment_opportunities_v3(TEXT, DATE, DATE, INT, NUMERIC, NUMERIC, TEXT[]);
+
 CREATE OR REPLACE FUNCTION investment_opportunities_v3(
   p_server TEXT,
   p_from DATE,
@@ -330,7 +342,8 @@ RETURNS TABLE (
   ma7 NUMERIC,
   volatility NUMERIC,
   target_price NUMERIC,
-  discount_pct NUMERIC
+  discount_pct NUMERIC,
+  icon_url TEXT
 )
 LANGUAGE sql
 STABLE
@@ -387,7 +400,8 @@ AS $$
     ROUND(
       ((s.ma7_calc * (1 - COALESCE(s.volatility_calc, 0)/100) - s.latest_price) 
        / NULLIF(s.ma7_calc * (1 - COALESCE(s.volatility_calc, 0)/100), 0)) * 100
-    , 2) AS discount_pct
+    , 2) AS discount_pct,
+    i.icon_url
   FROM aggregated_stats s
   JOIN items i ON s.item_id = i.id
   WHERE 
@@ -400,6 +414,8 @@ AS $$
   ORDER BY discount_pct DESC
   LIMIT p_limit;
 $$;
+DROP FUNCTION IF EXISTS sell_opportunities_v3(TEXT, DATE, DATE, INT, NUMERIC, NUMERIC, TEXT[]);
+
 
 -- 7. Sell Opportunities V3
 CREATE OR REPLACE FUNCTION sell_opportunities_v3(
@@ -418,7 +434,8 @@ RETURNS TABLE (
   ma7 NUMERIC,
   volatility NUMERIC,
   target_price NUMERIC,
-  premium_pct NUMERIC
+  premium_pct NUMERIC,
+  icon_url TEXT
 )
 LANGUAGE sql
 STABLE
@@ -475,7 +492,8 @@ AS $$
     ROUND(
       ((s.latest_price - (s.ma7_calc * (1 + COALESCE(s.volatility_calc, 0)/100))) 
        / NULLIF(s.ma7_calc * (1 + COALESCE(s.volatility_calc, 0)/100), 0)) * 100
-    , 2) AS premium_pct
+    , 2) AS premium_pct,
+    i.icon_url
   FROM aggregated_stats s
   JOIN items i ON s.item_id = i.id
   WHERE 
