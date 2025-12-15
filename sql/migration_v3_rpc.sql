@@ -521,7 +521,9 @@ RETURNS TABLE (
   category text,
   average_price numeric,
   normalized_name text,
-  icon_url text
+  icon_url text,
+  is_craftable boolean,
+  usage_count integer
 )
 LANGUAGE sql
 STABLE
@@ -543,6 +545,11 @@ AS $$
     FROM observations
     WHERE captured_at >= NOW() - INTERVAL '30 days'
     GROUP BY item_id, server
+  ),
+  usage_counts AS (
+    SELECT item_id, COUNT(*) as cnt 
+    FROM recipe_ingredients 
+    GROUP BY item_id
   )
   SELECT
     i.id,
@@ -554,11 +561,15 @@ AS $$
     c.name AS category,
     ROUND(COALESCE(ao.average_price, lo.price_unit_avg), 0) as average_price,
     unaccent(lower(i.name)) AS normalized_name,
-    i.icon_url
+    i.icon_url,
+    (r.id IS NOT NULL) AS is_craftable,
+    COALESCE(uc.cnt, 0)::integer AS usage_count
   FROM latest_obs lo
   JOIN items i ON lo.item_id = i.id
   LEFT JOIN categories c ON i.category_id = c.id
   LEFT JOIN avg_obs ao ON lo.item_id = ao.item_id AND lo.server = ao.server
+  LEFT JOIN recipes r ON i.id = r.result_item_id
+  LEFT JOIN usage_counts uc ON i.id = uc.item_id
   ORDER BY i.name, lo.server;
 $$;
 
