@@ -192,7 +192,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           last_price: stats?.last_price,
           previous_price: stats?.previous_price,
           last_observation_at: stats?.last_observation_at,
-          average_price: stats?.average_price
+          average_price: stats?.average_price,
+          icon_url: li.items?.icon_url || stats?.icon_url
         };
       }).filter((i: any) => i.item_name !== 'Unknown Item')
     }));

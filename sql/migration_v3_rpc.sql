@@ -572,6 +572,8 @@ AS $$
 $$;
 
 -- 10. Items with Variation V3 (for Lists)
+DROP FUNCTION IF EXISTS public.items_with_variation_v3(text[], text, timestamptz);
+
 CREATE OR REPLACE FUNCTION public.items_with_variation_v3(
   p_item_names text[],
   p_server text DEFAULT NULL,
@@ -583,7 +585,8 @@ RETURNS TABLE (
   server text,
   last_price numeric,
   previous_price numeric,
-  category text
+  category text,
+  icon_url text
 )
 LANGUAGE sql
 STABLE
@@ -615,7 +618,8 @@ AS $$
     l.server,
     l.price AS last_price,
     COALESCE(p.price, l.price) AS previous_price,
-    c.name AS category
+    c.name AS category,
+    i.icon_url
   FROM latest l
   JOIN items i ON l.item_id = i.id
   LEFT JOIN previous p ON l.item_id = p.item_id AND l.server = p.server
