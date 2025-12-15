@@ -25,8 +25,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  if (req.method === 'POST') {
+    const { recipe_id, ingredients } = req.body;
+
+    if (!recipe_id || !ingredients || !Array.isArray(ingredients)) {
+      return res.status(400).json({ error: 'invalid_body' });
+    }
+
+    try {
+      const { error } = await supabase.rpc('update_recipe_ingredients', {
+        p_recipe_id: recipe_id,
+        p_ingredients: ingredients
+      });
+
+      if (error) throw error;
+      return res.status(200).json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET');
+    res.setHeader('Allow', ['GET', 'POST']);
     return res.status(405).json({ error: 'method_not_allowed' });
   }
 
@@ -50,6 +70,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const server = decodeQueryValue(req.query.server);
   if (!server) {
     return res.status(400).json({ error: 'missing_server' });
+  }
+
+  // --- Mode: Usage (Recipes using an item) ---
+  if (mode === 'usage') {
+    const itemName = decodeQueryValue(req.query.item_name);
+    if (!itemName) {
+      return res.status(400).json({ error: 'missing_item_name' });
+    }
+    
+    try {
+      const { data, error } = await supabase.rpc('get_item_usages', {
+        p_server: server,
+        p_item_name: itemName,
+        p_limit: 20
+      });
+      
+      if (error) throw error;
+      return res.status(200).json(data);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
   }
 
   // Parse params

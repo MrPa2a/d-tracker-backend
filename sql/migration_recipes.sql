@@ -13,10 +13,14 @@ CREATE TABLE IF NOT EXISTS recipes (
     job_id INTEGER REFERENCES jobs(id), -- Lien vers le métier
     level INTEGER, -- Niveau du métier requis
     is_custom BOOLEAN DEFAULT FALSE, -- Si ajouté manuellement
+    is_locked BOOLEAN DEFAULT FALSE, -- Si verrouillé pour empêcher la mise à jour automatique
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(result_item_id)
 );
+
+-- Migration pour les tables existantes : ajout de la colonne is_locked si elle manque
+ALTER TABLE recipes ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE;
 
 -- 3. Table des ingrédients (Lignes)
 CREATE TABLE IF NOT EXISTS recipe_ingredients (
@@ -30,6 +34,8 @@ CREATE TABLE IF NOT EXISTS recipe_ingredients (
 CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_item ON recipe_ingredients(item_id);
 
 -- 4. Fonction pour calculer la rentabilité des recettes en temps réel
+DROP FUNCTION IF EXISTS get_recipes_with_stats(text,integer,integer,integer,numeric,integer,integer,text,text,integer,integer);
+
 CREATE OR REPLACE FUNCTION get_recipes_with_stats(
     p_server TEXT,
     p_min_level INTEGER DEFAULT 0,
@@ -57,7 +63,9 @@ RETURNS TABLE (
     margin NUMERIC,
     roi NUMERIC,
     ingredients_count INTEGER,
-    ingredients_with_price INTEGER
+    ingredients_with_price INTEGER,
+    result_item_last_update TIMESTAMPTZ,
+    ingredients_last_update TIMESTAMPTZ
 )
 LANGUAGE plpgsql
 AS $$
@@ -70,7 +78,8 @@ BEGIN
     latest_prices AS (
         SELECT DISTINCT ON (item_id) 
             item_id, 
-            price_unit_avg as price
+            price_unit_avg as price,
+            captured_at
         FROM observations
         WHERE server = p_server
         ORDER BY item_id, captured_at DESC
@@ -81,7 +90,8 @@ BEGIN
             ri.recipe_id,
             SUM(ri.quantity * COALESCE(lp.price, 0)) AS total_cost,
             COUNT(*) AS total_ingredients,
-            COUNT(lp.price) AS priced_ingredients
+            COUNT(lp.price) AS priced_ingredients,
+            MIN(lp.captured_at) AS min_captured_at
         FROM recipe_ingredients ri
         LEFT JOIN latest_prices lp ON ri.item_id = lp.item_id
         GROUP BY ri.recipe_id
@@ -104,7 +114,9 @@ BEGIN
             ELSE 0 
         END AS roi,
         rc.total_ingredients::INTEGER,
-        rc.priced_ingredients::INTEGER
+        rc.priced_ingredients::INTEGER,
+        lp.captured_at AS result_item_last_update,
+        rc.min_captured_at AS ingredients_last_update
     FROM recipes r
     JOIN items i ON r.result_item_id = i.id
     JOIN jobs j ON r.job_id = j.id
@@ -177,5 +189,113 @@ BEGIN
         LIMIT 1
     ) obs ON TRUE
     WHERE ri.recipe_id = p_recipe_id;
+END;
+$$;
+
+-- 6. Function to get recipes using a specific item (Usages)
+CREATE OR REPLACE FUNCTION get_item_usages(
+    p_server TEXT,
+    p_item_name TEXT,
+    p_limit INTEGER DEFAULT 20
+)
+RETURNS TABLE (
+    recipe_id INTEGER,
+    result_item_id INTEGER,
+    result_item_name TEXT,
+    result_item_icon TEXT,
+    job_name TEXT,
+    level INTEGER,
+    quantity_required INTEGER,
+    craft_cost NUMERIC,
+    sell_price NUMERIC,
+    margin NUMERIC,
+    roi NUMERIC
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH target_item AS (
+        SELECT id FROM items WHERE name = p_item_name LIMIT 1
+    ),
+    -- Get all recipes using this item
+    relevant_recipes AS (
+        SELECT r.id, ri.quantity
+        FROM recipe_ingredients ri
+        JOIN target_item ti ON ri.item_id = ti.id
+        JOIN recipes r ON ri.recipe_id = r.id
+    ),
+    -- Calculate costs only for these recipes
+    recipe_costs AS (
+        SELECT 
+            rr.id AS recipe_id,
+            SUM(ri.quantity * COALESCE(obs.price_unit_avg, 0)) AS total_cost
+        FROM relevant_recipes rr
+        JOIN recipe_ingredients ri ON rr.id = ri.recipe_id
+        LEFT JOIN LATERAL (
+            SELECT price_unit_avg 
+            FROM observations o 
+            WHERE o.item_id = ri.item_id AND o.server = p_server
+            ORDER BY o.captured_at DESC LIMIT 1
+        ) obs ON TRUE
+        GROUP BY rr.id
+    )
+    SELECT 
+        r.id AS recipe_id,
+        i.id AS result_item_id,
+        i.name AS result_item_name,
+        i.icon_url AS result_item_icon,
+        j.name AS job_name,
+        r.level,
+        rr.quantity AS quantity_required,
+        rc.total_cost AS craft_cost,
+        COALESCE(lp.price_unit_avg, 0) AS sell_price,
+        (COALESCE(lp.price_unit_avg, 0) - rc.total_cost) AS margin,
+        CASE 
+            WHEN rc.total_cost > 0 THEN ((COALESCE(lp.price_unit_avg, 0) - rc.total_cost) / rc.total_cost) * 100
+            ELSE 0 
+        END AS roi
+    FROM relevant_recipes rr
+    JOIN recipes r ON rr.id = r.id
+    JOIN items i ON r.result_item_id = i.id
+    JOIN jobs j ON r.job_id = j.id
+    JOIN recipe_costs rc ON r.id = rc.recipe_id
+    LEFT JOIN LATERAL (
+        SELECT price_unit_avg 
+        FROM observations o 
+        WHERE o.item_id = r.result_item_id AND o.server = p_server
+        ORDER BY o.captured_at DESC LIMIT 1
+    ) lp ON TRUE
+    ORDER BY margin DESC
+    LIMIT p_limit;
+END;
+$$;
+
+-- 7. Function to update recipe ingredients (and lock the recipe)
+CREATE OR REPLACE FUNCTION update_recipe_ingredients(
+    p_recipe_id INTEGER,
+    p_ingredients JSONB -- Array of {item_id: int, quantity: int}
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    ing JSONB;
+BEGIN
+    -- 1. Lock the recipe
+    UPDATE recipes 
+    SET is_locked = TRUE, 
+        updated_at = NOW() 
+    WHERE id = p_recipe_id;
+
+    -- 2. Remove old ingredients
+    DELETE FROM recipe_ingredients WHERE recipe_id = p_recipe_id;
+
+    -- 3. Insert new ingredients
+    FOR ing IN SELECT * FROM jsonb_array_elements(p_ingredients)
+    LOOP
+        INSERT INTO recipe_ingredients (recipe_id, item_id, quantity)
+        VALUES (p_recipe_id, (ing->>'item_id')::INTEGER, (ing->>'quantity')::INTEGER);
+    END LOOP;
 END;
 $$;
