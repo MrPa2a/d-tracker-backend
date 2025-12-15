@@ -286,6 +286,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           signal: ['buy', 'sell', 'neutral'].includes(rawStats.signal) ? rawStats.signal : 'neutral',
           ma7: typeof rawStats.ma7 === 'number' ? rawStats.ma7 : 0,
           current_price: typeof rawStats.current_price === 'number' ? rawStats.current_price : 0,
+          category: rawStats.category,
+          icon_url: rawStats.icon_url
         };
 
         return res.status(200).json(stats);
