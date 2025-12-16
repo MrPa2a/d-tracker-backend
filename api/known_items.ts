@@ -24,10 +24,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     // MIGRATION V3: On lit depuis la table items avec le flag is_manually_added
+    // On filtre aussi ceux qui ont un ankama_id non null pour éviter les erreurs
     const { data, error } = await supabase
       .from('items')
       .select('ankama_id, name, categories(name), icon_url')
-      .eq('is_manually_added', true);
+      .eq('is_manually_added', true)
+      .not('ankama_id', 'is', null);
 
     if (error) {
       return res.status(500).json({ error: error.message });
