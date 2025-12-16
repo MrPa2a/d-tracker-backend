@@ -82,6 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const { data: itemId, error: rpcError } = await supabase!.rpc('get_or_create_item_id', {
         p_name: item_name,
+        p_ankama_id: null,
         p_category: null
       });
 

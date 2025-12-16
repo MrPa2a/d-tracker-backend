@@ -26,23 +26,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'POST') {
-    const { recipe_id, ingredients } = req.body;
+    const { recipe_id, ingredients, result_item_id, job_id, level } = req.body;
 
-    if (!recipe_id || !ingredients || !Array.isArray(ingredients)) {
-      return res.status(400).json({ error: 'invalid_body' });
+    // Case 1: Create or Update Custom Recipe (User feature)
+    if (result_item_id && ingredients && Array.isArray(ingredients)) {
+      try {
+        const { error } = await supabase.rpc('create_or_update_custom_recipe', {
+          p_result_item_id: result_item_id,
+          p_job_id: job_id || null,
+          p_level: level || null,
+          p_ingredients: ingredients
+        });
+
+        if (error) throw error;
+        return res.status(200).json({ success: true });
+      } catch (err: any) {
+        return res.status(500).json({ error: err.message });
+      }
     }
 
-    try {
-      const { error } = await supabase.rpc('update_recipe_ingredients', {
-        p_recipe_id: recipe_id,
-        p_ingredients: ingredients
-      });
+    // Case 2: Update existing recipe by ID (Legacy)
+    if (recipe_id && ingredients && Array.isArray(ingredients)) {
+      try {
+        const { error } = await supabase.rpc('update_recipe_ingredients', {
+          p_recipe_id: recipe_id,
+          p_ingredients: ingredients
+        });
 
-      if (error) throw error;
-      return res.status(200).json({ success: true });
-    } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+        if (error) throw error;
+        return res.status(200).json({ success: true });
+      } catch (err: any) {
+        return res.status(500).json({ error: err.message });
+      }
     }
+
+    return res.status(400).json({ error: 'invalid_body' });
   }
 
   if (req.method !== 'GET') {

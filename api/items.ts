@@ -308,7 +308,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json(servers);
     }
 
-    // 3. List Items (Default)
+    // 3. Search Items (mode=search) - Unique items only
+    if (mode === 'search') {
+      const search = decodeQueryValue(req.query.search);
+      const limit = parseInt((req.query.limit as string) || '10');
+
+      if (!search) {
+        return res.status(200).json([]);
+      }
+
+      const normalizedSearch = removeAccents(search);
+      
+      // Use simple ILIKE on items table
+      const { data, error } = await supabase
+        .from('items')
+        .select('id, name, ankama_id, icon_url')
+        .ilike('name', `%${normalizedSearch}%`)
+        .limit(limit);
+
+      if (error) {
+        console.error('Supabase error in /api/items (search):', error);
+        return res.status(500).json({ error: 'database_error', message: error.message });
+      }
+
+      return res.status(200).json(
+        (data || []).map((row: any) => ({
+          id: row.id,
+          item_name: row.name,
+          ankama_id: row.ankama_id,
+          icon_url: row.icon_url
+        }))
+      );
+    }
+
+    // 4. List Items (Default - with stats)
     try {
       const { 
         limit = '200', 

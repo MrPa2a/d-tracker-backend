@@ -299,3 +299,48 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- 8. Function to create or update a custom recipe
+CREATE OR REPLACE FUNCTION create_or_update_custom_recipe(
+    p_result_item_id INTEGER,
+    p_job_id INTEGER, -- Can be NULL
+    p_level INTEGER, -- Can be NULL
+    p_ingredients JSONB -- Array of {item_id: int, quantity: int}
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_recipe_id INTEGER;
+    ing JSONB;
+BEGIN
+    -- 1. Check if recipe exists
+    SELECT id INTO v_recipe_id FROM recipes WHERE result_item_id = p_result_item_id;
+
+    IF v_recipe_id IS NOT NULL THEN
+        -- Update existing recipe
+        UPDATE recipes 
+        SET is_custom = TRUE,
+            is_locked = TRUE,
+            job_id = COALESCE(p_job_id, job_id),
+            level = COALESCE(p_level, level),
+            updated_at = NOW() 
+        WHERE id = v_recipe_id;
+        
+        -- Remove old ingredients
+        DELETE FROM recipe_ingredients WHERE recipe_id = v_recipe_id;
+    ELSE
+        -- Create new recipe
+        INSERT INTO recipes (result_item_id, job_id, level, is_custom, is_locked)
+        VALUES (p_result_item_id, p_job_id, p_level, TRUE, TRUE)
+        RETURNING id INTO v_recipe_id;
+    END IF;
+
+    -- 2. Insert new ingredients
+    FOR ing IN SELECT * FROM jsonb_array_elements(p_ingredients)
+    LOOP
+        INSERT INTO recipe_ingredients (recipe_id, item_id, quantity)
+        VALUES (v_recipe_id, (ing->>'item_id')::INTEGER, (ing->>'quantity')::INTEGER);
+    END LOOP;
+END;
+$$;

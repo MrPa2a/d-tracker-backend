@@ -1,6 +1,9 @@
 -- MIGRATION V3 FUNCTIONS
 -- Fonctions nécessaires pour l'ingestion et la gestion des items/catégories
 
+-- Drop the ambiguous function signature if it exists (cleanup)
+DROP FUNCTION IF EXISTS get_or_create_item_id(text, text);
+
 -- Fonction RPC helper pour l'ingestion (Get or Create Item & Category)
 -- Nouvelle logique (V4) : Source of Truth = DB
 CREATE OR REPLACE FUNCTION get_or_create_item_id(p_name TEXT, p_ankama_id INTEGER DEFAULT NULL, p_category TEXT DEFAULT NULL)
