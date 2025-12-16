@@ -319,26 +319,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const normalizedSearch = removeAccents(search);
       
-      // Use simple ILIKE on items table
+      // Fetch more items to allow better sorting in memory
       const { data, error } = await supabase
         .from('items')
         .select('id, name, ankama_id, icon_url')
         .ilike('name', `%${normalizedSearch}%`)
-        .limit(limit);
+        .limit(100);
 
       if (error) {
         console.error('Supabase error in /api/items (search):', error);
         return res.status(500).json({ error: 'database_error', message: error.message });
       }
 
-      return res.status(200).json(
-        (data || []).map((row: any) => ({
-          id: row.id,
-          item_name: row.name,
-          ankama_id: row.ankama_id,
-          icon_url: row.icon_url
-        }))
-      );
+      let results = (data || []).map((row: any) => ({
+        id: row.id,
+        item_name: row.name,
+        ankama_id: row.ankama_id,
+        icon_url: row.icon_url
+      }));
+
+      // Sort by relevance: Exact > StartsWith > Length
+      results.sort((a, b) => {
+        const nameA = removeAccents(a.item_name).toLowerCase();
+        const nameB = removeAccents(b.item_name).toLowerCase();
+        const searchLower = normalizedSearch.toLowerCase();
+
+        const exactA = nameA === searchLower;
+        const exactB = nameB === searchLower;
+        if (exactA && !exactB) return -1;
+        if (!exactA && exactB) return 1;
+
+        const startsA = nameA.startsWith(searchLower);
+        const startsB = nameB.startsWith(searchLower);
+        if (startsA && !startsB) return -1;
+        if (!startsA && startsB) return 1;
+
+        return nameA.length - nameB.length;
+      });
+
+      return res.status(200).json(results.slice(0, limit));
     }
 
     // 4. List Items (Default - with stats)
@@ -353,8 +372,77 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const search = decodeQueryValue(req.query.search);
       const server = decodeQueryValue(req.query.server);
       const category = decodeQueryValue(req.query.category);
+      const limitVal = parseInt(limit as string);
+      const offsetVal = parseInt(offset as string);
 
       console.log('Search params:', { search, server, category, limit, offset });
+
+      const mapRow = (row: any) => ({
+        id: row.id,
+        item_name: row.item_name,
+        ankama_id: row.ankama_id,
+        server: row.server,
+        last_observation_at: row.last_observation_at,
+        last_price: row.last_price,
+        category: row.category,
+        average_price: row.average_price,
+        icon_url: row.icon_url,
+        is_craftable: row.is_craftable,
+        usage_count: row.usage_count
+      });
+
+      // Smart Search Strategy for first page of search results
+      if (search && offsetVal === 0) {
+        const normalizedSearch = removeAccents(search);
+        
+        const buildQuery = () => {
+            let q = supabase.rpc('items_with_latest_stats_v3');
+            if (server) q = q.eq('server', server);
+            if (category) q = q.eq('category', category);
+            return q;
+        };
+
+        // Parallel queries for relevance
+        const [exact, startsWith, contains] = await Promise.all([
+          buildQuery().ilike('normalized_name', normalizedSearch).limit(10),
+          buildQuery().ilike('normalized_name', `${normalizedSearch}%`).limit(20),
+          buildQuery().ilike('normalized_name', `%${normalizedSearch}%`).limit(limitVal + 20)
+        ]);
+
+        if (exact.error) throw exact.error;
+        if (startsWith.error) throw startsWith.error;
+        if (contains.error) throw contains.error;
+
+        const allItems = [
+          ...(exact.data || []), 
+          ...(startsWith.data || []), 
+          ...(contains.data || [])
+        ];
+
+        // Deduplicate by ID
+        const uniqueItems = Array.from(new Map(allItems.map(item => [item.id, item])).values());
+
+        // Sort by relevance
+        uniqueItems.sort((a, b) => {
+          const nameA = removeAccents(a.item_name).toLowerCase();
+          const nameB = removeAccents(b.item_name).toLowerCase();
+          const searchLower = normalizedSearch.toLowerCase();
+
+          const exactA = nameA === searchLower;
+          const exactB = nameB === searchLower;
+          if (exactA && !exactB) return -1;
+          if (!exactA && exactB) return 1;
+
+          const startsA = nameA.startsWith(searchLower);
+          const startsB = nameB.startsWith(searchLower);
+          if (startsA && !startsB) return -1;
+          if (!startsA && startsB) return 1;
+
+          return nameA.length - nameB.length;
+        });
+
+        return res.status(200).json(uniqueItems.slice(0, limitVal).map(mapRow));
+      }
 
       let query = supabase.rpc('items_with_latest_stats_v3');
 
@@ -374,8 +462,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const sortColumn = sortBy === 'price' ? 'last_price' : 'normalized_name';
       query = query.order(sortColumn, { ascending: sortOrder === 'asc' });
 
-      const from = parseInt(offset as string);
-      const to = from + parseInt(limit as string) - 1;
+      const from = offsetVal;
+      const to = from + limitVal - 1;
       
       query = query.range(from, to);
 
@@ -390,21 +478,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      return res.status(200).json(
-        (data || []).map((row: any) => ({
-          id: row.id,
-          item_name: row.item_name,
-          ankama_id: row.ankama_id,
-          server: row.server,
-          last_observation_at: row.last_observation_at,
-          last_price: row.last_price,
-          category: row.category,
-          average_price: row.average_price,
-          icon_url: row.icon_url,
-          is_craftable: row.is_craftable,
-          usage_count: row.usage_count
-        }))
-      );
+      return res.status(200).json((data || []).map(mapRow));
     } catch (err: any) {
       console.error('Error in /api/items:', err);
       return res.status(500).json({ error: 'internal_server_error', message: err.message });
