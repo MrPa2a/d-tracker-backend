@@ -96,12 +96,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!itemName) {
       return res.status(400).json({ error: 'missing_item_name' });
     }
+
+    const limit = parseInt(decodeQueryValue(req.query.limit) || '20');
+    const offset = parseInt(decodeQueryValue(req.query.offset) || '0');
+    const search = decodeQueryValue(req.query.search);
     
     try {
       const { data, error } = await supabase.rpc('get_item_usages', {
         p_server: server,
         p_item_name: itemName,
-        p_limit: 20
+        p_limit: limit,
+        p_offset: offset,
+        p_search: search
       });
       
       if (error) throw error;

@@ -196,7 +196,9 @@ $$;
 CREATE OR REPLACE FUNCTION get_item_usages(
     p_server TEXT,
     p_item_name TEXT,
-    p_limit INTEGER DEFAULT 20
+    p_limit INTEGER DEFAULT 20,
+    p_offset INTEGER DEFAULT 0,
+    p_search TEXT DEFAULT NULL
 )
 RETURNS TABLE (
     recipe_id INTEGER,
@@ -209,7 +211,8 @@ RETURNS TABLE (
     craft_cost NUMERIC,
     sell_price NUMERIC,
     margin NUMERIC,
-    roi NUMERIC
+    roi NUMERIC,
+    total_count BIGINT
 )
 LANGUAGE plpgsql
 AS $$
@@ -218,14 +221,20 @@ BEGIN
     WITH target_item AS (
         SELECT id FROM items WHERE name = p_item_name LIMIT 1
     ),
-    -- Get all recipes using this item
+    -- Get all recipes using this item, with optional search filter
     relevant_recipes AS (
         SELECT r.id, ri.quantity
         FROM recipe_ingredients ri
         JOIN target_item ti ON ri.item_id = ti.id
         JOIN recipes r ON ri.recipe_id = r.id
+        JOIN items i ON r.result_item_id = i.id
+        WHERE (p_search IS NULL OR i.name ILIKE '%' || p_search || '%')
     ),
-    -- Calculate costs only for these recipes
+    -- Calculate total count of matching recipes
+    total_count_cte AS (
+        SELECT COUNT(*) AS count FROM relevant_recipes
+    ),
+    -- Calculate costs for these recipes
     recipe_costs AS (
         SELECT 
             rr.id AS recipe_id,
@@ -254,7 +263,8 @@ BEGIN
         CASE 
             WHEN rc.total_cost > 0 THEN ((COALESCE(lp.price_unit_avg, 0) - rc.total_cost) / rc.total_cost) * 100
             ELSE 0 
-        END AS roi
+        END AS roi,
+        (SELECT count FROM total_count_cte) AS total_count
     FROM relevant_recipes rr
     JOIN recipes r ON rr.id = r.id
     JOIN items i ON r.result_item_id = i.id
@@ -267,7 +277,8 @@ BEGIN
         ORDER BY o.captured_at DESC LIMIT 1
     ) lp ON TRUE
     ORDER BY margin DESC
-    LIMIT p_limit;
+    LIMIT p_limit
+    OFFSET p_offset;
 END;
 $$;
 
