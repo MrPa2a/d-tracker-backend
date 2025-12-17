@@ -125,3 +125,83 @@ BEGIN
   RETURN v_obs_id;
 END;
 $$;
+
+-- Function to delete an item and all its related data
+CREATE OR REPLACE FUNCTION delete_item_cascade(p_item_id INTEGER)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_item_name TEXT;
+BEGIN
+    -- Get item name for favorites deletion
+    SELECT name INTO v_item_name FROM items WHERE id = p_item_id;
+
+    IF v_item_name IS NOT NULL THEN
+        -- Delete from profile_favorites
+        DELETE FROM profile_favorites WHERE item_name = v_item_name;
+    END IF;
+
+    -- Delete from recipe_ingredients (where this item is an ingredient)
+    DELETE FROM recipe_ingredients WHERE item_id = p_item_id;
+
+    -- Delete from recipes (where this item is the result)
+    -- Note: This will cascade to recipe_ingredients for this recipe because of ON DELETE CASCADE on recipe_ingredients.recipe_id
+    DELETE FROM recipes WHERE result_item_id = p_item_id;
+
+    -- Delete from observations
+    DELETE FROM observations WHERE item_id = p_item_id;
+
+    -- Delete from list_items (has cascade, but safe to include)
+    DELETE FROM list_items WHERE item_id = p_item_id;
+
+    -- Finally delete the item
+    DELETE FROM items WHERE id = p_item_id;
+END;
+$$;
+
+-- Function to get usage stats for an item before deletion
+CREATE OR REPLACE FUNCTION get_item_usage_stats(p_item_id INTEGER)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_item_name TEXT;
+    v_recipe_count INTEGER;
+    v_ingredient_count INTEGER;
+    v_list_count INTEGER;
+    v_favorite_count INTEGER;
+    v_observation_count INTEGER;
+BEGIN
+    SELECT name INTO v_item_name FROM items WHERE id = p_item_id;
+
+    -- Count recipes where this item is the result
+    SELECT COUNT(*) INTO v_recipe_count FROM recipes WHERE result_item_id = p_item_id;
+
+    -- Count recipes where this item is an ingredient
+    SELECT COUNT(*) INTO v_ingredient_count FROM recipe_ingredients WHERE item_id = p_item_id;
+
+    -- Count lists containing this item
+    SELECT COUNT(*) INTO v_list_count FROM list_items WHERE item_id = p_item_id;
+
+    -- Count favorites (by name)
+    IF v_item_name IS NOT NULL THEN
+        SELECT COUNT(*) INTO v_favorite_count FROM profile_favorites WHERE item_name = v_item_name;
+    ELSE
+        v_favorite_count := 0;
+    END IF;
+
+    -- Count observations
+    SELECT COUNT(*) INTO v_observation_count FROM observations WHERE item_id = p_item_id;
+
+    RETURN json_build_object(
+        'recipes_created', v_recipe_count,
+        'recipes_used_in', v_ingredient_count,
+        'lists', v_list_count,
+        'favorites', v_favorite_count,
+        'observations', v_observation_count
+    );
+END;
+$$;

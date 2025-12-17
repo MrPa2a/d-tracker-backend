@@ -226,6 +226,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ status: 'ok', old_item_name, new_item_name, server, category });
   }
 
+  // --- DELETE: Delete Item ---
+  if (req.method === 'DELETE') {
+    // Auth check
+    const authHeader = req.headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+    const token = authHeader.slice('Bearer '.length).trim();
+    if (token !== ingestApiToken) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const { id } = req.query;
+    if (!id) {
+      return res.status(400).json({ error: 'Missing item id' });
+    }
+
+    const itemId = parseInt(id as string);
+    if (isNaN(itemId)) {
+      return res.status(400).json({ error: 'Invalid item id' });
+    }
+
+    const { error } = await supabase.rpc('delete_item_cascade', {
+      p_item_id: itemId
+    });
+
+    if (error) {
+      console.error('Supabase RPC error (delete_item_cascade):', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.status(200).json({ success: true });
+  }
+
   // --- GET: List Items or Item Stats ---
   if (req.method === 'GET') {
     const { mode } = req.query;
@@ -306,6 +340,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const servers = (data as any[]).map((d) => d.server);
       return res.status(200).json(servers);
+    }
+
+    // 2.5 Get Usage Stats (mode=usage_stats)
+    if (mode === 'usage_stats') {
+      const { id } = req.query;
+      if (!id) {
+        return res.status(400).json({ error: 'Missing item id' });
+      }
+      const itemId = parseInt(id as string);
+      if (isNaN(itemId)) {
+        return res.status(400).json({ error: 'Invalid item id' });
+      }
+
+      const { data, error } = await supabase.rpc('get_item_usage_stats', {
+        p_item_id: itemId
+      });
+
+      if (error) {
+        console.error('Supabase RPC error (get_item_usage_stats):', error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      return res.status(200).json(data);
     }
 
     // 3. Search Items (mode=search) - Unique items only
@@ -485,6 +542,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  res.setHeader('Allow', 'GET, PUT');
+  res.setHeader('Allow', 'GET, PUT, DELETE');
   return res.status(405).json({ error: 'method_not_allowed' });
 }
