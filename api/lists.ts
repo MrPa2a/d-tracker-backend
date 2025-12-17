@@ -96,7 +96,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Note: items table does not have server/price. We fetch category via relation.
     let query = supabase
       .from('lists')
-      .select('*, list_items(item_id, quantity, items(name, icon_url, is_craftable, categories(name)))');
+      .select('*, list_items(item_id, quantity, items(name, icon_url, categories(name)))');
 
     if (id) {
       query = query.eq('id', id);
@@ -115,10 +115,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 2. Extract all unique item names to fetch their stats
     const allItemNames = new Set<string>();
+    const allItemIds = new Set<number>();
     listsData.forEach((list: any) => {
       list.list_items.forEach((li: any) => {
         if (li.items?.name) {
           allItemNames.add(li.items.name);
+        }
+        if (li.item_id) {
+          allItemIds.add(li.item_id);
         }
       });
     });
@@ -128,8 +132,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // If a server is provided in query, we filter by it. Otherwise we might get multiple rows per item (one per server).
     // We'll prioritize the requested server, or 'Draconiros', or just the first one.
     let statsMap = new Map<string, any>();
+    const craftableItemIds = new Set<number>();
 
     if (allItemNames.size > 0) {
+      // Fetch craftable status
+      if (allItemIds.size > 0) {
+        const { data: recipesData } = await supabase
+          .from('recipes')
+          .select('result_item_id')
+          .in('result_item_id', Array.from(allItemIds));
+        
+        recipesData?.forEach((r: any) => craftableItemIds.add(r.result_item_id));
+      }
+
       // Calculate from date based on range
       let fromDate = new Date();
       const r = (range as string) || '24h';
@@ -194,7 +209,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           last_observation_at: stats?.last_observation_at,
           average_price: stats?.average_price,
           icon_url: li.items?.icon_url || stats?.icon_url,
-          is_craftable: li.items?.is_craftable
+          is_craftable: craftableItemIds.has(li.item_id)
         };
       }).filter((i: any) => i.item_name !== 'Unknown Item')
     }));
