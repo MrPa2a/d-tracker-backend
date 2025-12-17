@@ -96,7 +96,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Note: items table does not have server/price. We fetch category via relation.
     let query = supabase
       .from('lists')
-      .select('*, list_items(item_id, quantity, items(name, icon_url, categories(name)))');
+      .select('*, list_items(item_id, quantity, items(name, icon_url, is_craftable, categories(name)))');
 
     if (id) {
       query = query.eq('id', id);
@@ -193,7 +193,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           previous_price: stats?.previous_price,
           last_observation_at: stats?.last_observation_at,
           average_price: stats?.average_price,
-          icon_url: li.items?.icon_url || stats?.icon_url
+          icon_url: li.items?.icon_url || stats?.icon_url,
+          is_craftable: li.items?.is_craftable
         };
       }).filter((i: any) => i.item_name !== 'Unknown Item')
     }));

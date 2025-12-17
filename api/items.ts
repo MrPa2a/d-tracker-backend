@@ -379,7 +379,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Fetch more items to allow better sorting in memory
       const { data, error } = await supabase
         .from('items')
-        .select('id, name, ankama_id, icon_url')
+        .select('id, name, ankama_id, icon_url, is_craftable')
         .ilike('name', `%${normalizedSearch}%`)
         .limit(100);
 
@@ -392,7 +392,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         id: row.id,
         item_name: row.name,
         ankama_id: row.ankama_id,
-        icon_url: row.icon_url
+        icon_url: row.icon_url,
+        is_craftable: row.is_craftable
       }));
 
       // Sort by relevance: Exact > StartsWith > Length
