@@ -32,6 +32,12 @@ CREATE INDEX IF NOT EXISTS idx_items_name_trgm ON public.items USING GIN (name g
 CREATE INDEX IF NOT EXISTS idx_items_ankama_id ON public.items (ankama_id); -- Pour lookup rapide par GID
 CREATE INDEX IF NOT EXISTS idx_items_category_id ON public.items (category_id); -- Pour filtrer par catégorie
 
+-- Add level column to items table
+ALTER TABLE public.items ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1;
+
+-- Index for filtering by level
+CREATE INDEX IF NOT EXISTS idx_items_level ON public.items(level);
+
 -- 3. Table des observations normalisée
 CREATE TABLE IF NOT EXISTS public.observations (
     id BIGSERIAL PRIMARY KEY,
