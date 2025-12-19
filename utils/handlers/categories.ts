@@ -1,13 +1,19 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { setCors } from '../utils/cors';
+import { setCors } from '../cors';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export const handleCategories = async (req: VercelRequest, res: VercelResponse) => {
+  // CORS is handled in the main handler, but we can keep it here for safety or remove it if the main handler does it.
+  // It's better to let the main handler do it once, but if we call this function directly, we might want it.
+  // However, if the main handler does it, doing it again might add duplicate headers.
+  // Let's assume the main handler will handle CORS for the OPTIONS request, but for the actual response, we might need it?
+  // setCors sets headers. Setting them twice is usually fine if values are same.
+  // But let's keep it to be safe as we are just moving code.
   setCors(req, res);
 
   if (req.method === 'OPTIONS') {

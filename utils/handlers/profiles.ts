@@ -1,13 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { setCors } from '../utils/cors';
+import { setCors } from '../cors';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export const handleProfiles = async (req: VercelRequest, res: VercelResponse) => {
   setCors(req, res);
 
   if (req.method === 'OPTIONS') {
@@ -52,11 +52,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .insert([{ profile_id: profileId, item_name: itemName }]);
 
       if (error) {
+        // Ignore duplicate key error
+        if (error.code === '23505') {
+          return res.status(200).json({ message: 'Item already in favorites' });
+        }
         console.error('Error adding favorite:', error);
         return res.status(500).json({ error: 'database_error', message: error.message });
       }
 
-      return res.status(201).json({ status: 'ok' });
+      return res.status(200).json({ message: 'Item added to favorites' });
     }
 
     if (req.method === 'DELETE') {
@@ -77,8 +81,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: 'database_error', message: error.message });
       }
 
-      return res.status(200).json({ status: 'ok' });
+      return res.status(200).json({ message: 'Item removed from favorites' });
     }
+
+    return res.status(405).json({ error: 'method_not_allowed' });
   }
 
   // --- Profiles Mode (Default) ---
@@ -144,4 +150,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   res.setHeader('Allow', 'GET, POST, DELETE');
   return res.status(405).json({ error: 'method_not_allowed' });
-}
+};

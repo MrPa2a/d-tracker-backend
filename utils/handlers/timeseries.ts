@@ -1,15 +1,12 @@
-// api/timeseries.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { setCors } from '../utils/cors';
+import { setCors } from '../cors';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const ingestApiToken = process.env.INGEST_API_TOKEN;
 
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
-
-
 
 // Petit helper pour décoder les + et %xx vers des espaces/UTF-8 corrects
 function decodeQueryValue(value: string | string[] | undefined): string | null {
@@ -26,7 +23,7 @@ function decodeQueryValue(value: string | string[] | undefined): string | null {
   }
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export const handleTimeseries = async (req: VercelRequest, res: VercelResponse) => {
   setCors(req, res);
 
   if (req.method === 'OPTIONS') {

@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { setCors } from '../utils/cors';
-import { JobXpService } from '../utils/job_xp';
+import { JobXpService } from '../job_xp';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -49,14 +48,7 @@ interface LevelingPlan {
   steps: LevelingStep[];
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  setCors(req, res);
-
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
+export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
   // Allow both GET and POST
   if (req.method !== 'GET' && req.method !== 'POST') {
     res.setHeader('Allow', 'GET, POST');

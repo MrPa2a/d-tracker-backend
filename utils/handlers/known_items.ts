@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { setCors } from '../utils/cors';
+import { setCors } from '../cors';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -14,7 +14,7 @@ const createItemSchema = z.object({
   category: z.string().optional(),
 });
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export const handleKnownItems = async (req: VercelRequest, res: VercelResponse) => {
   setCors(req, res);
 
   if (req.method === 'OPTIONS') {

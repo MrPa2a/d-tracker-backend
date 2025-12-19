@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import Busboy from 'busboy';
-import { setCors } from '../utils/cors';
+import { setCors } from '../cors';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -33,13 +33,7 @@ const updateItemSchema = z.object({
   category: z.string().optional(),
 });
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export const handleItems = async (req: VercelRequest, res: VercelResponse) => {
   setCors(req, res);
 
   if (req.method === 'OPTIONS') {
@@ -47,7 +41,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // --- POST: Upload Icon ---
   if (req.method === 'POST') {
     const { type } = req.query;
 
@@ -152,19 +145,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: 'forbidden' });
     }
 
-    // Manual body parsing
-    let bodyStr = '';
-    await new Promise<void>((resolve, reject) => {
-        req.on('data', chunk => { bodyStr += chunk; });
-        req.on('end', () => resolve());
-        req.on('error', err => reject(err));
-    });
+    // Manual body parsing if not already parsed
+    let parsedBody: any = req.body;
+    
+    if (!parsedBody || Object.keys(parsedBody).length === 0) {
+        let bodyStr = '';
+        await new Promise<void>((resolve, reject) => {
+            req.on('data', chunk => { bodyStr += chunk; });
+            req.on('end', () => resolve());
+            req.on('error', err => reject(err));
+        });
 
-    let parsedBody: unknown;
-    try {
-      parsedBody = JSON.parse(bodyStr);
-    } catch (err) {
-      return res.status(400).json({ error: 'invalid_json' });
+        try {
+          parsedBody = JSON.parse(bodyStr);
+        } catch (err) {
+          return res.status(400).json({ error: 'invalid_json' });
+        }
     }
 
     const result = updateItemSchema.safeParse(parsedBody);

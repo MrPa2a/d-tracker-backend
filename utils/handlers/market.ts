@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { setCors } from '../utils/cors';
+import { setCors } from '../cors';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -18,7 +18,7 @@ function decodeQueryValue(value: string | string[] | undefined): string | null {
   }
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export const handleMarket = async (req: VercelRequest, res: VercelResponse) => {
   setCors(req, res);
 
   if (req.method === 'OPTIONS') {

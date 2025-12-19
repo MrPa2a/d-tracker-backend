@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { setCors } from '../utils/cors';
+import { setCors } from '../cors';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -29,7 +29,7 @@ const deleteSchema = z.object({
   id: z.number().int().positive(),
 });
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export const handleObservations = async (req: VercelRequest, res: VercelResponse) => {
   setCors(req, res);
 
   if (req.method === 'OPTIONS') {
@@ -51,21 +51,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // Parse Body
-  let parsedBody: unknown;
-  if (req.method !== 'GET' && req.method !== 'DELETE') { // DELETE might have body or query param? Usually body for JSON APIs
+  let parsedBody: any;
+  if (req.method !== 'GET') {
+     // DELETE might have body or query param? Usually body for JSON APIs
      // Actually delete-observation.ts used body.
      try {
       parsedBody = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     } catch (err) {
       return res.status(400).json({ error: 'invalid_json' });
     }
-  } else if (req.method === 'DELETE') {
-      // Try body first, if empty maybe query? But original used body.
-      try {
-        parsedBody = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-      } catch (err) {
-         // ignore if body is empty/invalid for now, validation will fail
-      }
   }
 
   // --- POST: Create Observation ---
