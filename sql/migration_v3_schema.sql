@@ -38,6 +38,13 @@ ALTER TABLE public.items ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1;
 -- Index for filtering by level
 CREATE INDEX IF NOT EXISTS idx_items_level ON public.items(level);
 
+-- Ajout de la colonne craft_xp_ratio à la table items
+ALTER TABLE items ADD COLUMN IF NOT EXISTS craft_xp_ratio INTEGER DEFAULT NULL;
+
+-- Index pour optimiser les requêtes si on veut filtrer par ratio (optionnel mais utile)
+CREATE INDEX IF NOT EXISTS idx_items_craft_xp_ratio ON items(craft_xp_ratio);
+
+
 -- 3. Table des observations normalisée
 CREATE TABLE IF NOT EXISTS public.observations (
     id BIGSERIAL PRIMARY KEY,

@@ -65,16 +65,14 @@ RETURNS TABLE (
     ingredients_count INTEGER,
     ingredients_with_price INTEGER,
     result_item_last_update TIMESTAMPTZ,
-    ingredients_last_update TIMESTAMPTZ
+    ingredients_last_update TIMESTAMPTZ,
+    craft_xp_ratio INTEGER -- Nouveau champ
 )
 LANGUAGE plpgsql
 AS $$
 BEGIN
     RETURN QUERY
     WITH 
-    -- 1. Latest prices for all items on the server
-    -- Optimization: We could filter items here if we knew which ones are needed, but for a global view we need most of them.
-    -- To optimize, we might want to materialize this or use a dedicated 'current_prices' table in the future.
     latest_prices AS (
         SELECT DISTINCT ON (item_id) 
             item_id, 
@@ -84,7 +82,6 @@ BEGIN
         WHERE server = p_server
         ORDER BY item_id, captured_at DESC
     ),
-    -- 2. Calculate craft cost for each recipe
     recipe_costs AS (
         SELECT 
             ri.recipe_id,
@@ -96,7 +93,6 @@ BEGIN
         LEFT JOIN latest_prices lp ON ri.item_id = lp.item_id
         GROUP BY ri.recipe_id
     )
-    -- 3. Main Query
     SELECT 
         r.id AS recipe_id,
         i.id AS result_item_id,
@@ -116,7 +112,8 @@ BEGIN
         rc.total_ingredients::INTEGER,
         rc.priced_ingredients::INTEGER,
         lp.captured_at AS result_item_last_update,
-        rc.min_captured_at AS ingredients_last_update
+        rc.min_captured_at AS ingredients_last_update,
+        i.craft_xp_ratio -- Retourne la valeur stockée
     FROM recipes r
     JOIN items i ON r.result_item_id = i.id
     JOIN jobs j ON r.job_id = j.id
@@ -142,11 +139,11 @@ BEGIN
         END DESC,
         CASE WHEN p_sort_by = 'level_desc' THEN r.level END DESC,
         CASE WHEN p_sort_by = 'cost_asc' THEN rc.total_cost END ASC,
-        -- Secondary sort
         r.level DESC
     LIMIT p_limit OFFSET p_offset;
 END;
 $$;
+
 
 -- 5. Function to get ingredients for a recipe with their latest price on a specific server
 DROP FUNCTION IF EXISTS get_recipe_ingredients(INTEGER, TEXT);

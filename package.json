@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "local": "npx vercel dev"
+    "local": "npx vercel dev",
+    "sync:xp-ratios": "ts-node scripts/sync_xp_ratios.ts"
   },
   "keywords": [],
   "author": "",
