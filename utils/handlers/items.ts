@@ -414,6 +414,66 @@ export const handleItems = async (req: VercelRequest, res: VercelResponse) => {
       return res.status(200).json(results.slice(0, limit));
     }
 
+    // 3.5 Get Item Details (mode=details)
+    if (mode === 'details') {
+      const itemName = decodeQueryValue(req.query.item_name);
+      
+      if (!itemName) {
+        return res.status(400).json({ error: 'Missing item_name' });
+      }
+
+      // First get the item
+      const { data: itemData, error: itemError } = await supabase
+        .from('items')
+        .select('id, name, level, icon_url, ankama_id, category_id')
+        .eq('name', itemName)
+        .single();
+
+      if (itemError || !itemData) {
+        return res.status(404).json({ error: 'Item not found' });
+      }
+
+      // Get effects
+      const { data: effectsData, error: effectsError } = await supabase
+        .from('item_effects')
+        .select('*')
+        .eq('item_id', itemData.id)
+        .order('order_index', { ascending: true });
+
+      if (effectsError) {
+        console.error('Error fetching effects:', effectsError);
+      }
+
+      // Fetch icons for these effects manually (to avoid strict FK constraints)
+      let formattedEffects = effectsData || [];
+      
+      if (formattedEffects.length > 0) {
+        const effectIds = [...new Set(formattedEffects.map((e: any) => e.effect_id))];
+        
+        const { data: iconsData } = await supabase
+            .from('effect_icons')
+            .select('effect_id, icon_url')
+            .in('effect_id', effectIds);
+            
+        const iconMap = new Map();
+        if (iconsData) {
+            iconsData.forEach((icon: any) => {
+                iconMap.set(icon.effect_id, icon.icon_url);
+            });
+        }
+
+        formattedEffects = formattedEffects.map((effect: any) => ({
+            ...effect,
+            icon_url: iconMap.get(effect.effect_id) || null
+        }));
+      }
+
+      return res.status(200).json({
+        ...itemData,
+        effects: formattedEffects
+      });
+    }
+
     // 4. List Items (Default - with stats)
     try {
       const { 
