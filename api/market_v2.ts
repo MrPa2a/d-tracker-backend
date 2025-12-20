@@ -17,6 +17,7 @@ async function parseBody(req: VercelRequest) {
     for await (const chunk of req) {
       bodyStr += chunk;
     }
+    if (!bodyStr) return;
     try {
       req.body = JSON.parse(bodyStr);
     } catch (e) {

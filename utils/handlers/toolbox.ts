@@ -17,6 +17,94 @@ function decodeQueryValue(value: string | string[] | undefined): string | null {
   }
 }
 
+interface AlmanaxDay {
+  date: string;
+  quantity: number;
+  bonus_description: string;
+  item: {
+    id: number;
+    name: string;
+    icon_url: string;
+    level: number;
+    last_price?: number;
+    avg_price_7d?: number;
+  };
+}
+
+async function handleAlmanax(req: VercelRequest, res: VercelResponse) {
+  const server = decodeQueryValue(req.query.server) || 'Draconiros';
+  try {
+    const { data: calendarData, error: calendarError } = await supabase
+      .from('almanax_calendar')
+      .select(`
+        date,
+        quantity,
+        bonus_description,
+        item:items (
+          id,
+          name,
+          icon_url,
+          level
+        )
+      `)
+      .gte('date', new Date().toISOString().split('T')[0])
+      .order('date', { ascending: true })
+      .limit(90);
+
+    if (calendarError) throw calendarError;
+    if (!calendarData) return res.status(200).json([]);
+
+    // Extract item IDs to fetch prices
+    // @ts-ignore
+    const itemIds = calendarData.map(d => d.item?.id).filter(id => !!id);
+
+    if (itemIds.length > 0) {
+      // Fetch latest prices (naive approach: get all observations for these items in last 24h)
+      // Better: use a view or distinct on.
+      // For now, let's just get the latest observation for each item.
+      
+      // We can use the 'observations' table.
+      // Since we can't easily do "latest per group" in simple supabase select without RPC or View,
+      // we will fetch recent observations and process in memory (limit to last 3 days to be safe)
+      
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      
+      const { data: obsData } = await supabase
+        .from('observations')
+        .select('item_id, price:price_unit_avg, timestamp:captured_at')
+        .eq('server', server)
+        .in('item_id', itemIds)
+        .gte('captured_at', threeDaysAgo.toISOString())
+        .order('captured_at', { ascending: false });
+
+      const priceMap: Record<number, number> = {};
+      if (obsData) {
+        for (const obs of obsData) {
+          if (!priceMap[obs.item_id]) {
+            priceMap[obs.item_id] = obs.price;
+          }
+        }
+      }
+
+      // Attach prices
+      for (const day of calendarData) {
+        // @ts-ignore
+        if (day.item && day.item.id) {
+            // @ts-ignore
+            day.item.last_price = priceMap[day.item.id] || null;
+        }
+      }
+    }
+
+    return res.status(200).json(calendarData);
+
+  } catch (error: any) {
+    console.error('Error in almanax:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
 interface Ingredient {
   id: number;
   name: string;
@@ -57,6 +145,10 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
 
   const server = decodeQueryValue(req.query.server) || req.body.server;
   const mode = decodeQueryValue(req.query.mode) || req.body.mode;
+
+  if (mode === 'almanax') {
+    return handleAlmanax(req, res);
+  }
 
   if (!server) {
     return res.status(400).json({ error: 'server_required' });
