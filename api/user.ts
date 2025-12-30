@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { handleLists } from '../utils/handlers/lists';
 import { handleProfiles } from '../utils/handlers/profiles';
+import { handleMessages } from '../utils/handlers/messages';
 import { setCors } from '../utils/cors';
 
 export const config = {
@@ -40,6 +41,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return handleLists(req, res);
     case 'profiles':
       return handleProfiles(req, res);
+    case 'messages':
+      return handleMessages(req, res);
     default:
       return res.status(400).json({ error: 'Missing or invalid resource parameter' });
   }
