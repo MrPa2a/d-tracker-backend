@@ -57,13 +57,13 @@ export const handleBank = async (req: VercelRequest, res: VercelResponse) => {
 
   // --- POST: Synchroniser le contenu de la banque ---
   if (req.method === 'POST') {
-    // Auth check
+    // Auth check - utilise INGEST_API_TOKEN comme les autres routes
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'unauthorized', message: 'Missing authorization header' });
     }
     const token = authHeader.split(' ')[1];
-    const expectedToken = process.env.API_TOKEN;
+    const expectedToken = process.env.INGEST_API_TOKEN;
     if (token !== expectedToken) {
       return res.status(401).json({ error: 'unauthorized', message: 'Invalid token' });
     }
@@ -125,7 +125,7 @@ export const handleBank = async (req: VercelRequest, res: VercelResponse) => {
       return res.status(401).json({ error: 'unauthorized', message: 'Missing authorization header' });
     }
     const token = authHeader.split(' ')[1];
-    if (token !== process.env.API_TOKEN) {
+    if (token !== process.env.INGEST_API_TOKEN) {
       return res.status(401).json({ error: 'unauthorized', message: 'Invalid token' });
     }
 
