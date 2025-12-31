@@ -4,26 +4,93 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
+// Helper pour décoder les query params
+const decodeQueryValue = (value: string | string[] | undefined): string | undefined => {
+  if (Array.isArray(value)) return value[0];
+  return value;
+};
+
 export const handleBank = async (req: VercelRequest, res: VercelResponse) => {
   const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
   // --- GET: Récupérer le contenu de la banque ---
   if (req.method === 'GET') {
-    const { server, profileId } = req.query;
+    const { server, profileId, mode } = req.query;
 
     if (!server) {
       return res.status(400).json({ error: 'invalid_input', message: 'server is required' });
     }
 
+    const serverStr = decodeQueryValue(server)!;
+    const profileIdStr = decodeQueryValue(profileId) || null;
+    const modeStr = decodeQueryValue(mode) || 'default';
+
     try {
+      // --- Mode: Craft Opportunities ---
+      if (modeStr === 'craft-opportunities') {
+        const maxMissing = parseInt(decodeQueryValue(req.query.max_missing) || '0');
+        const minLevel = parseInt(decodeQueryValue(req.query.min_level) || '0');
+        const maxLevel = parseInt(decodeQueryValue(req.query.max_level) || '200');
+        const jobId = decodeQueryValue(req.query.job_id);
+        const minRoi = decodeQueryValue(req.query.min_roi);
+        const limit = parseInt(decodeQueryValue(req.query.limit) || '50');
+        const offset = parseInt(decodeQueryValue(req.query.offset) || '0');
+        const sortBy = decodeQueryValue(req.query.sort_by) || 'completeness_desc';
+        const search = decodeQueryValue(req.query.search);
+
+        const { data, error } = await supabase.rpc('get_bank_craft_opportunities', {
+          p_server: serverStr,
+          p_profile_id: profileIdStr,
+          p_max_missing: maxMissing,
+          p_min_level: minLevel,
+          p_max_level: maxLevel,
+          p_job_id: jobId ? parseInt(jobId) : null,
+          p_min_roi: minRoi ? parseFloat(minRoi) : null,
+          p_limit: limit,
+          p_offset: offset,
+          p_sort_by: sortBy,
+          p_name_search: search || null
+        });
+
+        if (error) {
+          console.error('Error fetching craft opportunities:', error);
+          return res.status(500).json({ error: 'database_error', message: error.message });
+        }
+
+        return res.status(200).json(data || []);
+      }
+
+      // --- Mode: Craft Ingredients with Stock ---
+      if (modeStr === 'craft-ingredients') {
+        const recipeId = parseInt(decodeQueryValue(req.query.recipe_id) || '0');
+
+        if (!recipeId) {
+          return res.status(400).json({ error: 'invalid_input', message: 'recipe_id is required' });
+        }
+
+        const { data, error } = await supabase.rpc('get_craft_ingredients_with_stock', {
+          p_recipe_id: recipeId,
+          p_server: serverStr,
+          p_profile_id: profileIdStr
+        });
+
+        if (error) {
+          console.error('Error fetching craft ingredients:', error);
+          return res.status(500).json({ error: 'database_error', message: error.message });
+        }
+
+        return res.status(200).json(data || []);
+      }
+
+      // --- Mode: Default (liste des items de la banque) ---
       let query = supabase
         .from('bank_items_view')
         .select('*')
-        .eq('server', server)
+        .eq('server', serverStr)
         .order('item_name', { ascending: true });
 
-      if (profileId) {
-        query = query.eq('profile_id', profileId);
+      if (profileIdStr) {
+        query = query.eq('profile_id', profileIdStr);
       }
 
       const { data, error } = await query;
