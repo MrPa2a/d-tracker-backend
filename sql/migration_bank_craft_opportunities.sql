@@ -194,6 +194,9 @@ $$;
 -- Obtient le détail des ingrédients d'une recette avec statut de possession
 -- ============================================================================
 
+-- Drop existing function first (return type changed)
+DROP FUNCTION IF EXISTS get_craft_ingredients_with_stock(INTEGER, TEXT, UUID);
+
 CREATE OR REPLACE FUNCTION get_craft_ingredients_with_stock(
     p_recipe_id INTEGER,
     p_server TEXT,
@@ -209,7 +212,8 @@ RETURNS TABLE (
     unit_price NUMERIC,
     owned_value NUMERIC,
     missing_cost NUMERIC,
-    status TEXT  -- 'complete', 'partial', 'missing'
+    status TEXT,  -- 'complete', 'partial', 'missing'
+    ingredient_recipe_id INTEGER  -- ID de la recette si l'ingrédient est craftable
 )
 LANGUAGE plpgsql
 AS $$
@@ -246,11 +250,13 @@ BEGIN
             WHEN COALESCE(bs.total_qty, 0) >= ri.quantity THEN 'complete'
             WHEN COALESCE(bs.total_qty, 0) > 0 THEN 'partial'
             ELSE 'missing'
-        END as status
+        END as status,
+        sub_r.id as ingredient_recipe_id
     FROM recipe_ingredients ri
     JOIN items i ON ri.item_id = i.id
     LEFT JOIN bank_stock bs ON ri.item_id = bs.item_id
     LEFT JOIN latest_prices lp ON ri.item_id = lp.item_id
+    LEFT JOIN recipes sub_r ON sub_r.result_item_id = ri.item_id
     WHERE ri.recipe_id = p_recipe_id
     ORDER BY 
         CASE 
