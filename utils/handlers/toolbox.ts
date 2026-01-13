@@ -277,11 +277,13 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
       const steps: LevelingStep[] = [];
       let currentLevel = fromLevel;
       let totalPlanCost = 0;
+      let xpOverflow = 0; // Track XP overflow from previous level
 
       let currentStep: LevelingStep | null = null;
 
       while (currentLevel < toLevel) {
         const xpRequired = JobXpService.getXpForNextLevel(currentLevel);
+        const xpRemaining = Math.max(0, xpRequired - xpOverflow); // Subtract overflow from required XP
         
         let bestRecipe = null;
         let minCostPerXp = Infinity;
@@ -312,8 +314,13 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
           break;
         }
 
-        const quantity = Math.ceil(xpRequired / bestXpGain);
+        // Calculate quantity based on remaining XP needed (after overflow)
+        const quantity = xpRemaining > 0 ? Math.ceil(xpRemaining / bestXpGain) : 0;
+        const xpGained = quantity * bestXpGain;
         const stepCost = quantity * bestRecipe.craft_cost;
+        
+        // Calculate overflow for next level
+        xpOverflow = (xpOverflow + xpGained) - xpRequired;
 
         if (currentStep && currentStep.recipeId === bestRecipe.recipe_id) {
           currentStep.endLevel = currentLevel + 1;
