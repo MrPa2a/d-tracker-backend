@@ -290,7 +290,7 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
         for (const recipe of recipes) {
           if (recipe.level > currentLevel) continue;
 
-          const xpGain = JobXpService.getXpGain(currentLevel, recipe.level, jobId, recipe.result_item_name, recipe.craft_xp_ratio);
+          const xpGain = JobXpService.getXpGain(currentLevel, recipe.level, recipe.craft_xp_ratio ?? -1);
           
           if (xpGain <= 0) continue;
 
