@@ -241,7 +241,18 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
     }
 
     if (mode === 'leveling') {
-      const { job_id, from_level, to_level } = req.body;
+      const { 
+        job_id, 
+        from_level, 
+        to_level, 
+        max_quantity_per_recipe, 
+        penalty_mode,
+        // Custom penalty parameters (override preset if provided)
+        custom_alpha,
+        custom_threshold,
+        custom_min_batch,
+        custom_max_resource_usage
+      } = req.body;
 
       if (!job_id || !from_level || !to_level) {
         return res.status(400).json({ error: 'Missing parameters for leveling mode' });
@@ -250,6 +261,31 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
       const fromLevel = parseInt(from_level);
       const toLevel = parseInt(to_level);
       const jobId = parseInt(job_id);
+      const maxQtyPerRecipe = max_quantity_per_recipe ? parseInt(max_quantity_per_recipe) : null;
+      
+      // Penalty mode: 'none', 'low', 'medium', 'high'
+      // Simulates HDV price increase when buying large quantities
+      // minBatch: minimum crafts to commit to before reconsidering (prevents recipe oscillation)
+      // maxResourceUsage: maximum total usage of any single ingredient (simulates HDV stock limit)
+      // 
+      // Design principle: higher penalty = stricter constraints = higher cost
+      // maxResourceUsage / threshold ratio kept constant (~3x) so max penalty before exhaustion is similar
+      // But higher modes have lower absolute limits, forcing more diversification
+      const penaltyConfig = {
+        none: { alpha: 0, threshold: Infinity, minBatch: 1, maxResourceUsage: Infinity },
+        low: { alpha: 0.3, threshold: 3000, minBatch: 100, maxResourceUsage: 8000 },
+        medium: { alpha: 0.5, threshold: 2000, minBatch: 75, maxResourceUsage: 5000 },
+        high: { alpha: 0.8, threshold: 1200, minBatch: 50, maxResourceUsage: 3000 }
+      };
+      
+      // Start with preset, then apply custom overrides
+      const basePreset = penaltyConfig[penalty_mode as keyof typeof penaltyConfig] || penaltyConfig.none;
+      const activePenalty = {
+        alpha: custom_alpha !== undefined ? parseFloat(custom_alpha) : basePreset.alpha,
+        threshold: custom_threshold !== undefined ? parseInt(custom_threshold) : basePreset.threshold,
+        minBatch: custom_min_batch !== undefined ? parseInt(custom_min_batch) : basePreset.minBatch,
+        maxResourceUsage: custom_max_resource_usage !== undefined ? parseInt(custom_max_resource_usage) : basePreset.maxResourceUsage
+      };
 
       if (fromLevel >= toLevel) {
         return res.status(400).json({ error: 'from_level must be less than to_level' });
@@ -273,80 +309,327 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
         return res.status(404).json({ error: 'No recipes found for this job' });
       }
 
+      // 1b. If penalty mode is active, preload ingredients and prices for dynamic cost calculation
+      interface RecipeIngredient {
+        itemId: number;
+        quantity: number;
+        basePrice: number;
+      }
+      const recipeIngredientsMap: Map<number, RecipeIngredient[]> = new Map();
+      const ingredientUsage: Map<number, number> = new Map(); // Track cumulative usage per ingredient
+      
+      if (activePenalty.alpha > 0) {
+        // Fetch all ingredients for all recipes
+        const recipeIds = recipes.map((r: { recipe_id: number }) => r.recipe_id);
+        const { data: ingredientsData } = await supabase
+          .from('recipe_ingredients')
+          .select('recipe_id, item_id, quantity')
+          .in('recipe_id', recipeIds);
+        
+        if (ingredientsData) {
+          // Get unique ingredient IDs
+          const ingredientIds = [...new Set(ingredientsData.map(i => i.item_id))];
+          
+          // Fetch prices for all ingredients
+          const { data: pricesData } = await supabase
+            .from('observations')
+            .select('item_id, price_unit_avg')
+            .eq('server', server)
+            .in('item_id', ingredientIds)
+            .order('captured_at', { ascending: false });
+          
+          // Build price map (latest price per item)
+          const priceMap: Map<number, number> = new Map();
+          if (pricesData) {
+            for (const p of pricesData) {
+              if (!priceMap.has(p.item_id)) {
+                priceMap.set(p.item_id, p.price_unit_avg);
+              }
+            }
+          }
+          
+          // Build ingredients map per recipe
+          for (const ing of ingredientsData) {
+            if (!recipeIngredientsMap.has(ing.recipe_id)) {
+              recipeIngredientsMap.set(ing.recipe_id, []);
+            }
+            recipeIngredientsMap.get(ing.recipe_id)!.push({
+              itemId: ing.item_id,
+              quantity: ing.quantity,
+              basePrice: priceMap.get(ing.item_id) || 0
+            });
+          }
+        }
+      }
+      
+      // Helper function to calculate penalized cost for a recipe
+      const calculatePenalizedCost = (recipeId: number, baseCraftCost: number, craftQuantity: number): number => {
+        if (activePenalty.alpha === 0) {
+          return baseCraftCost * craftQuantity;
+        }
+        
+        const ingredients = recipeIngredientsMap.get(recipeId);
+        if (!ingredients || ingredients.length === 0) {
+          return baseCraftCost * craftQuantity;
+        }
+        
+        let totalPenalizedCost = 0;
+        
+        for (const ing of ingredients) {
+          const currentUsage = ingredientUsage.get(ing.itemId) || 0;
+          const ingQuantityNeeded = ing.quantity * craftQuantity;
+          
+          // Calculate average penalty across the quantity range
+          // Integral of (1 + α * x/threshold) from currentUsage to currentUsage + ingQuantityNeeded
+          // = ingQuantityNeeded + α/threshold * (currentUsage*ingQuantityNeeded + ingQuantityNeeded²/2)
+          const { alpha, threshold } = activePenalty;
+          const avgMultiplier = 1 + alpha * (currentUsage + ingQuantityNeeded / 2) / threshold;
+          
+          totalPenalizedCost += ing.basePrice * ingQuantityNeeded * avgMultiplier;
+        }
+        
+        return totalPenalizedCost;
+      };
+      
+      // Helper function to update ingredient usage after crafting
+      const updateIngredientUsage = (recipeId: number, craftQuantity: number) => {
+        if (activePenalty.alpha === 0) return;
+        
+        const ingredients = recipeIngredientsMap.get(recipeId);
+        if (!ingredients) return;
+        
+        for (const ing of ingredients) {
+          const currentUsage = ingredientUsage.get(ing.itemId) || 0;
+          ingredientUsage.set(ing.itemId, currentUsage + ing.quantity * craftQuantity);
+        }
+      };
+
       // 2. Compute the plan
       const steps: LevelingStep[] = [];
       let currentLevel = fromLevel;
       let totalPlanCost = 0;
       let xpOverflow = 0; // Track XP overflow from previous level
+      
+      // Track quantity used per recipe for limiting
+      const recipeUsage: Map<string, number> = new Map();
 
       let currentStep: LevelingStep | null = null;
+      
+      // Stability threshold: only switch recipes if new one is X% better
+      // This prevents micro-oscillations between recipes with similar cost/XP
+      const STABILITY_THRESHOLD = 0.05; // 5% improvement required to switch
+      let lastChosenRecipeId: number | null = null;
 
       while (currentLevel < toLevel) {
         const xpRequired = JobXpService.getXpForNextLevel(currentLevel);
-        const xpRemaining = Math.max(0, xpRequired - xpOverflow); // Subtract overflow from required XP
+        let xpRemaining = Math.max(0, xpRequired - xpOverflow); // Subtract overflow from required XP
         
-        let bestRecipe = null;
-        let minCostPerXp = Infinity;
-        let bestXpGain = 0;
-
-        for (const recipe of recipes) {
-          if (recipe.level > currentLevel) continue;
-
-          const xpGain = JobXpService.getXpGain(currentLevel, recipe.level, recipe.craft_xp_ratio ?? -1);
+        // Helper: check how many crafts are possible before any ingredient is exhausted
+        const getMaxCraftableBeforeExhaustion = (recipeId: number): number => {
+          if (activePenalty.maxResourceUsage === Infinity) return Infinity;
+          const ingredients = recipeIngredientsMap.get(recipeId);
+          if (!ingredients || ingredients.length === 0) return Infinity;
           
-          if (xpGain <= 0) continue;
-
-          const cost = recipe.craft_cost || Infinity;
-          
-          if (cost === Infinity) continue;
-
-          const costPerXp = cost / xpGain;
-
-          if (costPerXp < minCostPerXp) {
-            minCostPerXp = costPerXp;
-            bestRecipe = recipe;
-            bestXpGain = xpGain;
+          let maxCrafts = Infinity;
+          for (const ing of ingredients) {
+            const currentUsage = ingredientUsage.get(ing.itemId) || 0;
+            const remainingResource = activePenalty.maxResourceUsage - currentUsage;
+            if (remainingResource <= 0) return 0; // Ingredient exhausted
+            const craftsWithThisIng = Math.floor(remainingResource / ing.quantity);
+            maxCrafts = Math.min(maxCrafts, craftsWithThisIng);
           }
-        }
+          return maxCrafts;
+        };
+        
+        // Inner loop: we may need multiple recipes to complete one level if limits apply
+        while (xpRemaining > 0) {
+          let bestRecipe = null;
+          let minCostPerXp = Infinity;
+          let bestXpGain = 0;
+          let bestRemainingQuota = Infinity;
+          
+          // Track current recipe's cost/XP for stability comparison
+          let currentRecipeCostPerXp = Infinity;
 
-        if (!bestRecipe) {
-          console.warn("No valid recipe found at level " + currentLevel + " for job " + jobId);
-          break;
-        }
+          for (const recipe of recipes) {
+            if (recipe.level > currentLevel) continue;
+            
+            // In realistic mode only: skip recipes with too large level gap
+            // (XP penalty makes them inefficient AND it's unrealistic to craft low-level items at high levels)
+            // In optimal mode, we want pure cost optimization regardless of level gap
+            const levelDelta = currentLevel - recipe.level;
+            if (activePenalty.alpha > 0 && levelDelta > 50) continue;
+            
+            // Check remaining quota for this recipe
+            let remainingQuota = Infinity;
+            if (maxQtyPerRecipe !== null) {
+              const used = recipeUsage.get(recipe.recipe_id) || 0;
+              remainingQuota = maxQtyPerRecipe - used;
+              if (remainingQuota <= 0) continue; // Skip exhausted recipes
+            }
+            
+            // Check if any ingredient is exhausted (resource limit reached)
+            const maxCraftable = getMaxCraftableBeforeExhaustion(recipe.recipe_id);
+            if (maxCraftable <= 0) continue; // Skip recipes with exhausted ingredients
+            remainingQuota = Math.min(remainingQuota, maxCraftable);
 
-        // Calculate quantity based on remaining XP needed (after overflow)
-        const quantity = xpRemaining > 0 ? Math.ceil(xpRemaining / bestXpGain) : 0;
-        const xpGained = quantity * bestXpGain;
-        const stepCost = quantity * bestRecipe.craft_cost;
+            const xpGain = JobXpService.getXpGain(currentLevel, recipe.level, recipe.craft_xp_ratio ?? -1);
+            
+            if (xpGain <= 0) continue;
+
+            const baseCost = recipe.craft_cost;
+            
+            // Skip recipes with no cost data (0 or null/undefined)
+            if (!baseCost || baseCost <= 0) continue;
+
+            // For penalty mode, estimate the cost including penalty for a batch
+            // Use minBatch for comparison to get realistic cost when committing to multiple crafts
+            let effectiveCostPerUnit = baseCost;
+            if (activePenalty.alpha > 0) {
+              const estimatedQty = Math.max(1, Math.min(activePenalty.minBatch, remainingQuota));
+              const batchCost = calculatePenalizedCost(recipe.recipe_id, baseCost, estimatedQty);
+              effectiveCostPerUnit = batchCost / estimatedQty;
+            }
+
+            const costPerXp = effectiveCostPerUnit / xpGain;
+            
+            // Track current recipe's cost/XP for stability comparison
+            if (lastChosenRecipeId === recipe.recipe_id) {
+              currentRecipeCostPerXp = costPerXp;
+            }
+
+            if (costPerXp < minCostPerXp) {
+              minCostPerXp = costPerXp;
+              bestRecipe = recipe;
+              bestXpGain = xpGain;
+              bestRemainingQuota = remainingQuota;
+            }
+          }
+
+          if (!bestRecipe) {
+            console.warn("No valid recipe found at level " + currentLevel + " for job " + jobId);
+            break;
+          }
+          
+          // Apply stability: if current recipe is still valid and close enough in cost, keep it
+          if (lastChosenRecipeId !== null && 
+              lastChosenRecipeId !== bestRecipe.recipe_id && 
+              currentRecipeCostPerXp < Infinity) {
+            // Only switch if new recipe is at least STABILITY_THRESHOLD better
+            const improvementRatio = (currentRecipeCostPerXp - minCostPerXp) / currentRecipeCostPerXp;
+            if (improvementRatio < STABILITY_THRESHOLD) {
+              // Keep the current recipe instead
+              const currentRecipe = recipes.find((r: { recipe_id: number }) => r.recipe_id === lastChosenRecipeId);
+              if (currentRecipe) {
+                // Recalculate for current recipe
+                const currXpGain = JobXpService.getXpGain(currentLevel, currentRecipe.level, currentRecipe.craft_xp_ratio ?? -1);
+                let currRemainingQuota = Infinity;
+                if (maxQtyPerRecipe !== null) {
+                  const used = recipeUsage.get(currentRecipe.recipe_id) || 0;
+                  currRemainingQuota = maxQtyPerRecipe - used;
+                }
+                const currMaxCraftable = getMaxCraftableBeforeExhaustion(currentRecipe.recipe_id);
+                currRemainingQuota = Math.min(currRemainingQuota, currMaxCraftable);
+                
+                if (currXpGain > 0 && currRemainingQuota > 0) {
+                  bestRecipe = currentRecipe;
+                  bestXpGain = currXpGain;
+                  bestRemainingQuota = currRemainingQuota;
+                }
+              }
+            }
+          }
+          
+          // Update last chosen recipe
+          lastChosenRecipeId = bestRecipe.recipe_id;
+
+          // Calculate quantity needed to complete remaining XP
+          let quantity = Math.ceil(xpRemaining / bestXpGain);
+          
+          // Apply minimum batch to prevent recipe oscillation in penalty mode
+          // Once we choose a recipe, commit to at least minBatch crafts
+          // BUT: limit minBatch to avoid absurd over-crafting (max 3x needed quantity)
+          // EXCEPTION: Don't apply minBatch on the last level to avoid wasting kamas on useless overflow
+          const isLastLevel = currentLevel >= toLevel - 1;
+          if (!isLastLevel && activePenalty.minBatch > 1 && quantity < activePenalty.minBatch) {
+            // Only apply minBatch if we have enough quota and it makes sense
+            const proposedBatch = Math.min(activePenalty.minBatch, bestRemainingQuota);
+            // Cap minBatch to max 3x the needed quantity to avoid massive overflow
+            const cappedBatch = Math.min(proposedBatch, Math.max(quantity * 3, 10));
+            if (cappedBatch > quantity) {
+              quantity = cappedBatch;
+            }
+          }
+          
+          // Cap by remaining quota if limit applies
+          if (maxQtyPerRecipe !== null && quantity > bestRemainingQuota) {
+            quantity = bestRemainingQuota;
+          }
+          
+          if (quantity <= 0) break;
+          
+          const xpGained = quantity * bestXpGain;
+          
+          // Calculate actual cost with penalty applied
+          const stepCost = activePenalty.alpha > 0 
+            ? calculatePenalizedCost(bestRecipe.recipe_id, bestRecipe.craft_cost, quantity)
+            : quantity * bestRecipe.craft_cost;
+          
+          // Update ingredient usage for penalty tracking
+          updateIngredientUsage(bestRecipe.recipe_id, quantity);
+          
+          // Track recipe usage for limiting
+          const currentUsage = recipeUsage.get(bestRecipe.recipe_id) || 0;
+          recipeUsage.set(bestRecipe.recipe_id, currentUsage + quantity);
+          
+          // Subtract from remaining XP for this level
+          xpRemaining -= xpGained;
+
+          if (currentStep && currentStep.recipeId === bestRecipe.recipe_id) {
+            currentStep.endLevel = currentLevel + 1;
+            currentStep.quantity += quantity;
+            currentStep.totalCost += stepCost;
+            currentStep.totalXp += xpRequired;
+          } else {
+            if (currentStep) {
+              steps.push(currentStep);
+            }
+            currentStep = {
+              startLevel: currentLevel,
+              endLevel: currentLevel + 1,
+              recipeId: bestRecipe.recipe_id,
+              recipeName: bestRecipe.result_item_name,
+              recipeLevel: bestRecipe.level,
+              quantity: quantity,
+              xpPerCraft: bestXpGain,
+              costPerCraft: bestRecipe.craft_cost,
+              totalCost: stepCost,
+              totalXp: xpRequired,
+              imgUrl: bestRecipe.result_item_icon
+            };
+          }
+
+          totalPlanCost += stepCost;
+        }
         
         // Calculate overflow for next level
-        xpOverflow = (xpOverflow + xpGained) - xpRequired;
-
-        if (currentStep && currentStep.recipeId === bestRecipe.recipe_id) {
-          currentStep.endLevel = currentLevel + 1;
-          currentStep.quantity += quantity;
-          currentStep.totalCost += stepCost;
-          currentStep.totalXp += xpRequired;
-        } else {
+        // If we skipped this level entirely due to overflow, propagate remaining overflow
+        const xpRequiredForLevel = JobXpService.getXpForNextLevel(currentLevel);
+        if (xpOverflow > xpRequiredForLevel) {
+          // Level was skipped - subtract this level's requirement from overflow
+          xpOverflow = xpOverflow - xpRequiredForLevel;
+          // Update endLevel of current step to reflect skipped levels
           if (currentStep) {
-            steps.push(currentStep);
+            currentStep.endLevel = currentLevel + 1;
           }
-          currentStep = {
-            startLevel: currentLevel,
-            endLevel: currentLevel + 1,
-            recipeId: bestRecipe.recipe_id,
-            recipeName: bestRecipe.result_item_name,
-            recipeLevel: bestRecipe.level,
-            quantity: quantity,
-            xpPerCraft: bestXpGain,
-            costPerCraft: bestRecipe.craft_cost,
-            totalCost: stepCost,
-            totalXp: xpRequired,
-            imgUrl: bestRecipe.result_item_icon
-          };
+        } else if (xpRemaining < 0) {
+          // We over-crafted - new overflow is the excess
+          xpOverflow = -xpRemaining;
+        } else {
+          // Exactly finished or under-crafted (should not happen with correct logic)
+          xpOverflow = 0;
         }
 
-        totalPlanCost += stepCost;
         currentLevel++;
       }
 

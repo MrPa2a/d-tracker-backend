@@ -6,7 +6,11 @@
   "scripts": {
     "build": "tsc",
     "local": "npx vercel dev",
-    "sync:xp-ratios": "ts-node scripts/sync_xp_ratios.ts"
+    "sync:xp-ratios": "ts-node scripts/sync_xp_ratios.ts",
+    "sync:items": "ts-node scripts/sync_items_from_dofusdb.ts",
+    "sync:items:dry": "ts-node scripts/sync_items_from_dofusdb.ts --dry-run",
+    "fix:name-swaps": "ts-node scripts/fix_name_swaps.ts",
+    "fix:name-swaps:dry": "ts-node scripts/fix_name_swaps.ts --dry-run"
   },
   "keywords": [],
   "author": "",
