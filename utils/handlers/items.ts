@@ -474,7 +474,144 @@ export const handleItems = async (req: VercelRequest, res: VercelResponse) => {
       });
     }
 
-    // 4. List Items (Default - with stats)
+    // 4. Market Items (mode=market) - Paginated with full filters
+    if (mode === 'market') {
+      try {
+        const { 
+          page = '1', 
+          pageSize = '50', 
+          sortBy = 'name', 
+          sortOrder = 'asc',
+        } = req.query;
+
+        const search = decodeQueryValue(req.query.search);
+        const server = decodeQueryValue(req.query.server);
+        const category = decodeQueryValue(req.query.category);
+        const minPrice = decodeQueryValue(req.query.minPrice);
+        const maxPrice = decodeQueryValue(req.query.maxPrice);
+        const filterItems = decodeQueryValue(req.query.filterItems); // comma-separated item names for favorites
+
+        const pageNum = Math.max(1, parseInt(page as string) || 1);
+        const pageSizeNum = Math.min(100, Math.max(1, parseInt(pageSize as string) || 50));
+        const offsetVal = (pageNum - 1) * pageSizeNum;
+
+        if (!server) {
+          return res.status(400).json({ error: 'Missing required parameter: server' });
+        }
+
+        const mapRow = (row: any) => ({
+          id: row.id,
+          item_name: row.item_name,
+          ankama_id: row.ankama_id,
+          server: row.server,
+          last_observation_at: row.last_observation_at,
+          last_price: row.last_price,
+          category: row.category,
+          average_price: row.average_price,
+          icon_url: row.icon_url,
+          is_craftable: row.is_craftable,
+          usage_count: row.usage_count
+        });
+
+        // Build base query with all filters
+        const buildQuery = () => {
+          let q = supabase.rpc('items_with_latest_stats_v3');
+          
+          q = q.eq('server', server);
+          
+          if (category) {
+            q = q.eq('category', category);
+          }
+          
+          if (search) {
+            const normalizedSearch = removeAccents(search);
+            q = q.ilike('normalized_name', `%${normalizedSearch}%`);
+          }
+          
+          if (minPrice) {
+            const minPriceNum = parseFloat(minPrice);
+            if (!isNaN(minPriceNum)) {
+              q = q.gte('last_price', minPriceNum);
+            }
+          }
+          
+          if (maxPrice) {
+            const maxPriceNum = parseFloat(maxPrice);
+            if (!isNaN(maxPriceNum)) {
+              q = q.lte('last_price', maxPriceNum);
+            }
+          }
+          
+          if (filterItems) {
+            const itemNames = filterItems.split(',').map(s => s.trim()).filter(Boolean);
+            if (itemNames.length > 0) {
+              q = q.in('item_name', itemNames);
+            }
+          }
+          
+          return q;
+        };
+
+        // Get total count using dedicated RPC (bypasses PostgREST row limit)
+        const filterItemsArray = filterItems 
+          ? filterItems.split(',').map(s => s.trim()).filter(Boolean)
+          : null;
+
+        const { data: countResult, error: countError } = await supabase.rpc('count_market_items_v3', {
+          p_server: server,
+          p_category: category || null,
+          p_search: search ? removeAccents(search) : null,
+          p_min_price: minPrice ? parseFloat(minPrice) : null,
+          p_max_price: maxPrice ? parseFloat(maxPrice) : null,
+          p_filter_items: filterItemsArray
+        });
+
+        if (countError) {
+          console.error('Supabase count error:', countError);
+          return res.status(500).json({ error: 'database_error', message: countError.message });
+        }
+
+        const totalCount = typeof countResult === 'number' ? countResult : 0;
+
+        // If no results, return early
+        if (totalCount === 0) {
+          return res.status(200).json({
+            items: [],
+            totalCount: 0,
+            page: pageNum,
+            pageSize: pageSizeNum,
+            totalPages: 0
+          });
+        }
+
+        // Get paginated data
+        let dataQuery = buildQuery();
+        
+        const sortColumn = sortBy === 'price' ? 'last_price' : 'normalized_name';
+        dataQuery = dataQuery.order(sortColumn, { ascending: sortOrder === 'asc' });
+        dataQuery = dataQuery.range(offsetVal, offsetVal + pageSizeNum - 1);
+
+        const { data, error } = await dataQuery;
+
+        if (error) {
+          console.error('Supabase error in /api/items (market):', error);
+          return res.status(500).json({ error: 'database_error', message: error.message });
+        }
+
+        return res.status(200).json({
+          items: (data || []).map(mapRow),
+          totalCount,
+          page: pageNum,
+          pageSize: pageSizeNum,
+          totalPages: Math.ceil(totalCount / pageSizeNum)
+        });
+      } catch (err: any) {
+        console.error('Error in /api/items (market):', err);
+        return res.status(500).json({ error: 'internal_server_error', message: err.message });
+      }
+    }
+
+    // 5. List Items (Default - with stats) - Legacy endpoint
     try {
       const { 
         limit = '200', 
