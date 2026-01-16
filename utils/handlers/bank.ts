@@ -4,9 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// Helper pour décoder les query params
+// Helper pour décoder les query params (gère le + comme espace)
 const decodeQueryValue = (value: string | string[] | undefined): string | undefined => {
-  if (Array.isArray(value)) return value[0];
+  if (Array.isArray(value)) return decodeURIComponent(value[0].replace(/\+/g, ' '));
+  if (value) return decodeURIComponent(value.replace(/\+/g, ' '));
   return value;
 };
 
@@ -83,6 +84,8 @@ export const handleBank = async (req: VercelRequest, res: VercelResponse) => {
       }
 
       // --- Mode: Default (liste des items de la banque) ---
+      console.log('[BANK DEBUG] Fetching bank items for:', { serverStr, profileIdStr });
+      
       let query = supabase
         .from('bank_items_view')
         .select('*')
@@ -94,6 +97,12 @@ export const handleBank = async (req: VercelRequest, res: VercelResponse) => {
       }
 
       const { data, error } = await query;
+
+      console.log('[BANK DEBUG] Query result:', { 
+        itemCount: data?.length || 0, 
+        error: error?.message || null,
+        firstItem: data?.[0] || null
+      });
 
       if (error) {
         console.error('Error fetching bank items:', error);
