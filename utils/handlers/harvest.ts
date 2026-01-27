@@ -142,6 +142,59 @@ async function handleMapPositions(req: VercelRequest, res: VercelResponse) {
   return res.status(200).json(data ?? []);
 }
 
+/**
+ * Get a grid of maps for the route map visualization.
+ * Returns all map positions within a bounding box.
+ */
+async function handleMapsGrid(req: VercelRequest, res: VercelResponse) {
+  const minX = parseNumber(req.query.minX);
+  const maxX = parseNumber(req.query.maxX);
+  const minY = parseNumber(req.query.minY);
+  const maxY = parseNumber(req.query.maxY);
+  const worldMap = parseNumber(req.query.worldMap) ?? 1;
+
+  if (minX === null || maxX === null || minY === null || maxY === null) {
+    return res.status(400).json({ error: 'bounds_required', message: 'minX, maxX, minY, maxY are required' });
+  }
+
+  // Limit grid size to prevent abuse (max 50x50 = 2500 cells)
+  const width = maxX - minX + 1;
+  const height = maxY - minY + 1;
+  if (width > 50 || height > 50) {
+    return res.status(400).json({ error: 'grid_too_large', message: 'Grid cannot exceed 50x50' });
+  }
+
+  // Query maps within bounds
+  // Use DISTINCT ON equivalent by selecting and deduping in JS
+  const { data, error } = await supabase
+    .from('map_positions')
+    .select('map_id, pos_x, pos_y, subarea_id')
+    .gte('pos_x', minX)
+    .lte('pos_x', maxX)
+    .gte('pos_y', minY)
+    .lte('pos_y', maxY)
+    .eq('world_map', worldMap);
+
+  if (error) return res.status(500).json({ error: 'db_error', details: error.message });
+
+  // Deduplicate by coordinates (keep first map_id for each position)
+  const positionMap = new Map<string, { map_id: number; pos_x: number; pos_y: number; subarea_id: number }>();
+  for (const row of data || []) {
+    const key = `${row.pos_x},${row.pos_y}`;
+    if (!positionMap.has(key)) {
+      positionMap.set(key, row);
+    }
+  }
+
+  const maps = Array.from(positionMap.values());
+
+  return res.status(200).json({
+    bounds: { minX, maxX, minY, maxY },
+    total: maps.length,
+    maps,
+  });
+}
+
 // ============================================================================
 // Route Optimization (TSP - Nearest Neighbor Algorithm)
 // ============================================================================
@@ -634,6 +687,8 @@ export async function handleHarvest(req: VercelRequest, res: VercelResponse) {
       return handleSubareas(req, res);
     case 'map_positions':
       return handleMapPositions(req, res);
+    case 'maps_grid':
+      return handleMapsGrid(req, res);
     default:
       return res.status(400).json({ error: 'invalid_mode' });
   }
