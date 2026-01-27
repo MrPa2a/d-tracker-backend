@@ -75,32 +75,17 @@ export const handleConsumables = async (req: VercelRequest, res: VercelResponse)
     if (itemsError) throw itemsError;
 
     // 3. Get Latest Prices for these items on the server
-    // We use a RPC or a raw query if possible, but here we'll try to fetch latest observations
-    // Optimization: We can't fetch ALL observations.
-    // We'll use a Supabase function if it existed, but let's try to fetch "latest prices" via a custom query if possible.
-    // Since we don't have a "latest_prices" view, we might have to fetch a bit more or rely on a client-side join logic if the dataset was small.
-    // But here we have potentially hundreds of items.
-    
-    // Let's try to fetch the latest observation for each item.
-    // Since Supabase JS doesn't support DISTINCT ON easily without RPC.
-    // We will fetch the last 7 days of observations for these items and filter in JS (not ideal but works for MVP).
-    // Better: Create a RPC function `get_latest_prices(server_name, item_ids)`.
-    
-    // For now, let's assume we can fetch recent observations and pick the latest.
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
+    // No time filter - we want the latest price regardless of age (like items_with_latest_stats_v3)
     const { data: pricesData, error: pricesError } = await supabase
       .from('observations')
       .select('item_id, price_unit_avg, captured_at')
       .eq('server', server)
       .in('item_id', idsArray)
-      .gte('captured_at', sevenDaysAgo.toISOString())
       .order('captured_at', { ascending: false });
 
     if (pricesError) throw pricesError;
 
-    // Map latest price
+    // Map latest price (first occurrence per item since ordered by captured_at DESC)
     const priceMap: Record<number, number> = {};
     const processedItems = new Set<number>();
 

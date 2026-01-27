@@ -193,27 +193,27 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
       if (itemsError) throw itemsError;
 
       // 3. Get Latest Prices for these items on the server
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
+      // No time filter - we want the latest price regardless of age (like items_with_latest_stats_v3)
       const { data: pricesData, error: pricesError } = await supabase
         .from('observations')
         .select('item_id, price_unit_avg, captured_at')
         .eq('server', server)
         .in('item_id', idsArray)
-        .gte('captured_at', sevenDaysAgo.toISOString())
         .order('captured_at', { ascending: false });
 
       if (pricesError) throw pricesError;
 
-      // Map latest price
-      const priceMap: Record<number, number> = {};
+      // Map latest price and captured_at (first occurrence per item since ordered by captured_at DESC)
+      const priceMap: Record<number, { price: number; captured_at: string }> = {};
       const processedItems = new Set<number>();
 
       if (pricesData) {
         for (const obs of pricesData) {
           if (!processedItems.has(obs.item_id)) {
-            priceMap[obs.item_id] = obs.price_unit_avg;
+            priceMap[obs.item_id] = { 
+              price: obs.price_unit_avg, 
+              captured_at: obs.captured_at 
+            };
             processedItems.add(obs.item_id);
           }
         }
@@ -222,7 +222,8 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
       // 4. Combine everything
       const result = itemsData?.map(item => {
         const stats = itemStats[item.id];
-        const price = priceMap[item.id] || 0;
+        const priceInfo = priceMap[item.id];
+        if (!priceInfo || priceInfo.price <= 0) return null;
         
         return {
           id: item.id,
@@ -233,11 +234,26 @@ export async function handleToolbox(req: VercelRequest, res: VercelResponse) {
             life: stats.life,
             energy: stats.energy
           },
-          price: price
+          price: priceInfo.price,
+          captured_at: priceInfo.captured_at
         };
-      }).filter(item => item.price > 0);
+      }).filter(Boolean);
 
-      return res.json(result);
+      // Find oldest observation date to warn frontend
+      let oldestObservation: string | null = null;
+      if (result && result.length > 0) {
+        oldestObservation = result.reduce((oldest, item) => {
+          if (!oldest || (item?.captured_at && item.captured_at < oldest)) {
+            return item?.captured_at || oldest;
+          }
+          return oldest;
+        }, result[0]?.captured_at || null);
+      }
+
+      return res.json({ 
+        items: result, 
+        oldestObservation 
+      });
     }
 
     if (mode === 'leveling') {
