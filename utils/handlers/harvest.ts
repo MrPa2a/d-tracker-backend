@@ -161,7 +161,7 @@ interface MapNode {
   pos_y: number;
   subarea_id: number;
   subarea_name: string;
-  resources: { id: number; name: string; count: number }[];
+  resources: { id: number; name: string; icon_url: string | null; count: number }[];
 }
 
 interface RouteStep {
@@ -171,7 +171,7 @@ interface RouteStep {
   pos_y: number;
   subarea_id: number;
   subarea_name: string;
-  resources: { id: number; name: string; count: number }[];
+  resources: { id: number; name: string; icon_url: string | null; count: number }[];
   distance_from_prev: number;
 }
 
@@ -316,25 +316,27 @@ async function handleOptimize(req: VercelRequest, res: VercelResponse) {
 
   const subareaMap = new Map(subareas?.map(s => [s.id, s.name_fr]) || []);
 
-  // 6. Get resource names
+  // 6. Get resource names and icons
   const { data: resources, error: resError } = await supabase
     .from('harvest_resources')
-    .select('id, name_fr')
+    .select('id, name_fr, icon_url')
     .in('id', resourceIds);
 
   if (resError) return res.status(500).json({ error: 'db_error', details: resError.message });
 
-  const resourceNameMap = new Map(resources?.map(r => [r.id, r.name_fr]) || []);
+  const resourceInfoMap = new Map(resources?.map(r => [r.id, { name: r.name_fr, icon_url: r.icon_url }]) || []);
 
   // 7. Build resources per map (from map_resources table - REAL per-map quantities!)
-  const resourcesByMapId = new Map<number, { id: number; name: string; count: number }[]>();
+  const resourcesByMapId = new Map<number, { id: number; name: string; icon_url: string | null; count: number }[]>();
   for (const mr of mapResourcesData) {
     if (!resourcesByMapId.has(mr.map_id)) {
       resourcesByMapId.set(mr.map_id, []);
     }
+    const info = resourceInfoMap.get(mr.resource_id);
     resourcesByMapId.get(mr.map_id)!.push({
       id: mr.resource_id,
-      name: resourceNameMap.get(mr.resource_id) || `Resource ${mr.resource_id}`,
+      name: info?.name || `Resource ${mr.resource_id}`,
+      icon_url: info?.icon_url || null,
       count: mr.quantity,
     });
   }
@@ -343,13 +345,13 @@ async function handleOptimize(req: VercelRequest, res: VercelResponse) {
   // Multiple maps at the same position are different "layers" (instances, variations)
   // For route optimization, we only care about unique positions
   // When merging, combine resources from all maps at same position
-  const positionMap = new Map<string, { map: typeof filteredMaps[0]; resources: Map<number, { id: number; name: string; count: number }> }>();
+  const positionMap = new Map<string, { map: typeof filteredMaps[0]; resources: Map<number, { id: number; name: string; icon_url: string | null; count: number }> }>();
   for (const m of filteredMaps) {
     const key = `${m.pos_x},${m.pos_y}`;
     const mapResources = resourcesByMapId.get(m.map_id) || [];
     
     if (!positionMap.has(key)) {
-      const resMap = new Map<number, { id: number; name: string; count: number }>();
+      const resMap = new Map<number, { id: number; name: string; icon_url: string | null; count: number }>();
       for (const r of mapResources) {
         resMap.set(r.id, { ...r });
       }
