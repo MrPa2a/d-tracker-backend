@@ -5,6 +5,7 @@ import { handleRecipes } from '../utils/handlers/recipes';
 import { handleKnownItems } from '../utils/handlers/known_items';
 import { handleConsumables } from '../utils/handlers/consumables';
 import { handleToolbox } from '../utils/handlers/toolbox';
+import { handleHarvest } from '../utils/handlers/harvest';
 import { setCors } from '../utils/cors';
 
 export const config = {
@@ -54,6 +55,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return handleConsumables(req, res);
     case 'toolbox':
       return handleToolbox(req, res);
+    case 'harvest':
+      return handleHarvest(req, res);
     default:
       return res.status(400).json({ error: 'Missing or invalid resource parameter' });
   }
